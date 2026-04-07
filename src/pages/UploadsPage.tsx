@@ -133,7 +133,8 @@ export default function UploadsPage() {
       if (parsed.length === 0) throw new Error("לא נמצאו שורות תקינות אחרי עיבוד הקובץ");
 
       // Upload file to storage
-      const storagePath = `${user!.id}/${Date.now()}_${file.name}`;
+      const safeFileName = sanitizeStorageFileName(file.name);
+      const storagePath = `${user!.id}/${safeFileName}`;
       const { error: storageError } = await supabase.storage
         .from("reports")
         .upload(storagePath, file);
