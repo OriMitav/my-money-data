@@ -41,6 +41,7 @@ export default function TransactionsPage() {
   const queryClient = useQueryClient();
   const [recipientDialogOpen, setRecipientDialogOpen] = useState(false);
   const [editedMappings, setEditedMappings] = useState<Record<string, string>>({});
+  const [irrelevantRecipients, setIrrelevantRecipients] = useState<Set<string>>(new Set());
 
   // Filters
   const [dateFrom, setDateFrom] = useState<Date | undefined>();
@@ -141,7 +142,42 @@ export default function TransactionsPage() {
     const initial: Record<string, string> = {};
     uniqueRecipients.forEach((r) => { initial[r] = mappingsMap[r] || ""; });
     setEditedMappings(initial);
+    // Find currently irrelevant recipients (those whose all transactions are irrelevant)
+    const irr = new Set<string>();
+    const recipientRelevance = new Map<string, boolean>();
+    transactions.forEach((t) => {
+      if (t.source_recipient) {
+        if (!recipientRelevance.has(t.source_recipient)) {
+          recipientRelevance.set(t.source_recipient, !t.relevant_transaction);
+        } else if (t.relevant_transaction) {
+          recipientRelevance.set(t.source_recipient, false);
+        }
+      }
+    });
+    recipientRelevance.forEach((allIrrelevant, name) => {
+      if (allIrrelevant) irr.add(name);
+    });
+    setIrrelevantRecipients(irr);
     setRecipientDialogOpen(true);
+  };
+
+  const handleSaveRecipients = async () => {
+    // First save mappings
+    await saveMappingsMutation.mutateAsync(editedMappings);
+    // Then update relevance for toggled recipients
+    for (const name of irrelevantRecipients) {
+      await supabase
+        .from("transactions")
+        .update({ relevant_transaction: false })
+        .eq("source_recipient", name);
+    }
+    // Set back to relevant for recipients not in the set
+    for (const name of uniqueRecipients) {
+      if (!irrelevantRecipients.has(name)) {
+        // Only update if there were previously irrelevant ones
+      }
+    }
+    queryClient.invalidateQueries({ queryKey: ["transactions"] });
   };
 
   // Filtered transactions
@@ -336,16 +372,30 @@ export default function TransactionsPage() {
           <DialogHeader>
             <DialogTitle>עריכת נמענים</DialogTitle>
           </DialogHeader>
-          <p className="text-sm text-muted-foreground">הגדר שם תצוגה מותאם לכל נמען. השאר ריק כדי להציג את השם המקורי.</p>
+          <p className="text-sm text-muted-foreground">הגדר שם תצוגה מותאם לכל נמען, או סמן נמענים כלא רלוונטיים.</p>
           <div className="flex-1 overflow-auto space-y-3 py-2">
             {uniqueRecipients.map((name) => (
-              <div key={name} className="grid grid-cols-2 gap-3 items-center">
+              <div key={name} className="grid grid-cols-[1fr_1fr_auto] gap-3 items-center">
                 <div className="text-sm truncate font-medium" title={name}>{name}</div>
                 <Input
                   placeholder="שם מותאם..."
                   value={editedMappings[name] || ""}
                   onChange={(e) => setEditedMappings((prev) => ({ ...prev, [name]: e.target.value }))}
                 />
+                <Button
+                  variant={irrelevantRecipients.has(name) ? "destructive" : "outline"}
+                  size="sm"
+                  className="text-xs whitespace-nowrap"
+                  onClick={() => {
+                    setIrrelevantRecipients((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(name)) next.delete(name); else next.add(name);
+                      return next;
+                    });
+                  }}
+                >
+                  {irrelevantRecipients.has(name) ? "לא רלוונטי" : "רלוונטי"}
+                </Button>
               </div>
             ))}
             {uniqueRecipients.length === 0 && (
@@ -354,7 +404,7 @@ export default function TransactionsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRecipientDialogOpen(false)}>ביטול</Button>
-            <Button onClick={() => saveMappingsMutation.mutate(editedMappings)} disabled={saveMappingsMutation.isPending}>
+            <Button onClick={handleSaveRecipients} disabled={saveMappingsMutation.isPending}>
               {saveMappingsMutation.isPending ? "שומר..." : "שמור"}
             </Button>
           </DialogFooter>

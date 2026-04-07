@@ -10,6 +10,7 @@ import EntitiesPage from "@/pages/EntitiesPage";
 import UploadsPage from "@/pages/UploadsPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import DashboardPage from "@/pages/DashboardPage";
+import CategoriesPage from "@/pages/CategoriesPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ function ProtectedRoutes() {
         <Route path="/uploads" element={<UploadsPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/categories" element={<CategoriesPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AppLayout>
