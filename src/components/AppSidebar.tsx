@@ -1,4 +1,4 @@
-import { Building2, Upload, ArrowLeftRight, LayoutDashboard, LogOut } from "lucide-react";
+import { Building2, Upload, ArrowLeftRight, LayoutDashboard, LogOut, FolderOpen } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +20,7 @@ const navItems = [
   { title: "ישויות", url: "/entities", icon: Building2 },
   { title: "העלאת דוחות", url: "/uploads", icon: Upload },
   { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
+  { title: "קטגוריות", url: "/categories", icon: FolderOpen },
   { title: "לוח בקרה", url: "/dashboard", icon: LayoutDashboard },
 ];
 
