@@ -14,6 +14,7 @@ export interface ColumnMapping {
   value?: string;
   credit?: string;
   debit?: string;
+  dateFormat?: "DMY" | "MDY";
 }
 
 function cleanValue(raw: unknown): number {
@@ -31,42 +32,28 @@ function cleanValue(raw: unknown): number {
   return isNeg ? -num : num;
 }
 
-function parseDate(raw: unknown): string {
+function parseDate(raw: unknown, format: ColumnMapping["dateFormat"] = "DMY"): string {
   if (!raw) return "";
   const str = String(raw).trim();
 
-  // Match patterns like DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, DD.MM.YYYY
   const parts = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (parts) {
-    const a = parseInt(parts[1]);
-    const b = parseInt(parts[2]);
     let year = parts[3];
     if (year.length === 2) year = "20" + year;
 
-    let day: string, month: string;
-    if (a > 12) {
-      // First number > 12 → must be day (DD/MM/YYYY)
-      day = parts[1].padStart(2, "0");
-      month = parts[2].padStart(2, "0");
-    } else if (b > 12) {
-      // Second number > 12 → must be day (MM/DD/YYYY)
-      month = parts[1].padStart(2, "0");
-      day = parts[2].padStart(2, "0");
-    } else {
-      // Ambiguous (both ≤ 12) — use DD/MM/YYYY as default for Israeli format
-      day = parts[1].padStart(2, "0");
-      month = parts[2].padStart(2, "0");
-    }
+    const first = parts[1].padStart(2, "0");
+    const second = parts[2].padStart(2, "0");
+    const day = format === "MDY" ? second : first;
+    const month = format === "MDY" ? first : second;
+
     return `${year}-${month}-${day}`;
   }
 
-  // Try ISO or other standard formats
   const d = new Date(str);
   if (!isNaN(d.getTime())) {
     return d.toISOString().split("T")[0];
   }
 
-  // Excel serial date number
   if (/^\d{5}$/.test(str)) {
     const excelEpoch = new Date(1899, 11, 30);
     const d2 = new Date(excelEpoch.getTime() + parseInt(str) * 86400000);
@@ -211,7 +198,7 @@ export function applyMapping(
       }
 
       return {
-        date: parseDate(getCol(row, mapping.date)),
+        date: parseDate(getCol(row, mapping.date), mapping.dateFormat),
         sourceRecipient: String(getCol(row, mapping.sourceRecipient) ?? ""),
         value,
         rawData: row,

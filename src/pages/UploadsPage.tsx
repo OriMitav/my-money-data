@@ -23,6 +23,20 @@ const MONTHS = [
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 6 }, (_, i) => currentYear - 3 + i);
 
+function sanitizeStorageFileName(fileName: string) {
+  const parts = fileName.split(".");
+  const ext = parts.length > 1 ? `.${parts.pop()!.toLowerCase().replace(/[^a-z0-9]/g, "")}` : "";
+  const base = parts.join(".");
+  const safeBase = base
+    .normalize("NFKD")
+    .replace(/[^\x00-\x7F]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+
+  return `${Date.now()}_${safeBase || "upload"}${ext}`;
+}
+
 export default function UploadsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -119,7 +133,8 @@ export default function UploadsPage() {
       if (parsed.length === 0) throw new Error("לא נמצאו שורות תקינות אחרי עיבוד הקובץ");
 
       // Upload file to storage
-      const storagePath = `${user!.id}/${Date.now()}_${file.name}`;
+      const safeFileName = sanitizeStorageFileName(file.name);
+      const storagePath = `${user!.id}/${safeFileName}`;
       const { error: storageError } = await supabase.storage
         .from("reports")
         .upload(storagePath, file);
