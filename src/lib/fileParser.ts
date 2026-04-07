@@ -18,25 +18,45 @@ export interface ColumnMapping {
 
 function cleanValue(raw: unknown): number {
   if (typeof raw === "number") return raw;
-  const str = String(raw ?? "")
+  let str = String(raw ?? "")
     .replace(/[\u200F\u200E\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069]/g, "")
     .replace(/[₪$€,\s]/g, "")
-    .replace(/[^\d.\-]/g, "");
+    .trim();
+  // Handle accounting-style negatives: (123.45) → -123.45
+  const isNeg = /^\(.*\)$/.test(str);
+  if (isNeg) str = str.replace(/[()]/g, "");
+  str = str.replace(/[^\d.\-]/g, "");
   const num = parseFloat(str);
-  return isNaN(num) ? 0 : num;
+  if (isNaN(num)) return 0;
+  return isNeg ? -num : num;
 }
 
 function parseDate(raw: unknown): string {
   if (!raw) return "";
   const str = String(raw).trim();
 
-  // Try DD/MM/YYYY or DD-MM-YYYY
-  const ddmmyyyy = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
-  if (ddmmyyyy) {
-    const day = ddmmyyyy[1].padStart(2, "0");
-    const month = ddmmyyyy[2].padStart(2, "0");
-    let year = ddmmyyyy[3];
+  // Match patterns like DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, DD.MM.YYYY
+  const parts = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (parts) {
+    const a = parseInt(parts[1]);
+    const b = parseInt(parts[2]);
+    let year = parts[3];
     if (year.length === 2) year = "20" + year;
+
+    let day: string, month: string;
+    if (a > 12) {
+      // First number > 12 → must be day (DD/MM/YYYY)
+      day = parts[1].padStart(2, "0");
+      month = parts[2].padStart(2, "0");
+    } else if (b > 12) {
+      // Second number > 12 → must be day (MM/DD/YYYY)
+      month = parts[1].padStart(2, "0");
+      day = parts[2].padStart(2, "0");
+    } else {
+      // Ambiguous (both ≤ 12) — use DD/MM/YYYY as default for Israeli format
+      day = parts[1].padStart(2, "0");
+      month = parts[2].padStart(2, "0");
+    }
     return `${year}-${month}-${day}`;
   }
 
@@ -158,6 +178,21 @@ export function parseXLSX(file: File): Promise<Record<string, unknown>[]> {
   });
 }
 
+/**
+ * Look up a value in a row, trying both the exact key and trimmed keys
+ * to handle column mapping or header whitespace mismatches.
+ */
+function getCol(row: Record<string, unknown>, key: string): unknown {
+  if (key in row) return row[key];
+  const trimmed = key.trim();
+  if (trimmed in row) return row[trimmed];
+  // Try matching trimmed row keys against trimmed mapping key
+  for (const k of Object.keys(row)) {
+    if (k.trim() === trimmed) return row[k];
+  }
+  return undefined;
+}
+
 export function applyMapping(
   rows: Record<string, unknown>[],
   mapping: ColumnMapping
@@ -166,19 +201,18 @@ export function applyMapping(
     .map((row) => {
       let value: number;
       if (mapping.credit && mapping.debit) {
-        // Dual column mode: credit is positive, debit is negative
-        const creditVal = cleanValue(row[mapping.credit]);
-        const debitVal = cleanValue(row[mapping.debit]);
+        const creditVal = cleanValue(getCol(row, mapping.credit));
+        const debitVal = cleanValue(getCol(row, mapping.debit));
         value = creditVal > 0 ? creditVal : debitVal > 0 ? -debitVal : 0;
       } else if (mapping.value) {
-        value = cleanValue(row[mapping.value]);
+        value = cleanValue(getCol(row, mapping.value));
       } else {
         value = 0;
       }
 
       return {
-        date: parseDate(row[mapping.date]),
-        sourceRecipient: String(row[mapping.sourceRecipient] ?? ""),
+        date: parseDate(getCol(row, mapping.date)),
+        sourceRecipient: String(getCol(row, mapping.sourceRecipient) ?? ""),
         value,
         rawData: row,
       };
