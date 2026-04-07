@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Upload, Download, Trash2, FileSpreadsheet, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { parseCSV, parseXLSX, applyMapping } from "@/lib/fileParser";
+import type { ColumnMapping } from "@/lib/fileParser";
 import type { Json } from "@/integrations/supabase/types";
 
 const MONTHS = [
