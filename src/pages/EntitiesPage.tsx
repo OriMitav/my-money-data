@@ -77,7 +77,7 @@ export default function EntitiesPage() {
       setOpen(false);
       setEditId(null);
       setForm(emptyForm);
-      toast.success(editId ? "Entity updated" : "Entity created");
+      toast.success(editId ? "הישות עודכנה" : "הישות נוצרה");
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -89,7 +89,7 @@ export default function EntitiesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["financial_entities"] });
-      toast.success("Entity deleted");
+      toast.success("הישות נמחקה");
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -106,7 +106,7 @@ export default function EntitiesPage() {
   };
 
   const handleSubmit = () => {
-    if (!form.name.trim()) return toast.error("Name is required");
+    if (!form.name.trim()) return toast.error("שם הישות הוא שדה חובה");
     upsertMutation.mutate({ ...form, id: editId ?? undefined });
   };
 
@@ -114,67 +114,67 @@ export default function EntitiesPage() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Financial Entities</h1>
-          <p className="text-muted-foreground">Manage your bank accounts and credit cards</p>
+          <h1 className="text-2xl font-bold tracking-tight">ישויות פיננסיות</h1>
+          <p className="text-muted-foreground">ניהול חשבונות בנק וכרטיסי אשראי</p>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm(emptyForm); } }}>
           <DialogTrigger asChild>
             <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Entity
+              <Plus className="ml-2 h-4 w-4" />
+              הוסף ישות
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>{editId ? "Edit Entity" : "New Entity"}</DialogTitle>
+              <DialogTitle>{editId ? "עריכת ישות" : "ישות חדשה"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Entity Name</Label>
+                <Label>שם הישות</Label>
                 <Input
-                  placeholder="e.g. Leumi Bank"
+                  placeholder="לדוגמה: בנק לאומי"
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Type</Label>
+                <Label>סוג</Label>
                 <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as "bank" | "credit_card" })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="bank">Bank</SelectItem>
-                    <SelectItem value="credit_card">Credit Card</SelectItem>
+                    <SelectItem value="bank">בנק</SelectItem>
+                    <SelectItem value="credit_card">כרטיס אשראי</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-3">
-                <Label className="text-sm font-semibold">Column Mapping</Label>
+                <Label className="text-sm font-semibold">מיפוי עמודות</Label>
                 <p className="text-xs text-muted-foreground">
-                  Map your CSV/XLSX column names to the system fields
+                  מפה את שמות העמודות מקובץ ה-CSV/XLSX לשדות המערכת
                 </p>
                 <div className="grid gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Date Column</Label>
+                    <Label className="text-xs text-muted-foreground">עמודת תאריך</Label>
                     <Input
-                      placeholder='e.g. תאריך'
+                      placeholder='לדוגמה: תאריך'
                       value={form.columnMapping.date}
                       onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, date: e.target.value } })}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Source/Recipient Column</Label>
+                    <Label className="text-xs text-muted-foreground">עמודת מקור/מוטב</Label>
                     <Input
-                      placeholder='e.g. תיאור'
+                      placeholder='לדוגמה: תיאור'
                       value={form.columnMapping.sourceRecipient}
                       onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, sourceRecipient: e.target.value } })}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Value Column</Label>
+                    <Label className="text-xs text-muted-foreground">עמודת סכום</Label>
                     <Input
-                      placeholder='e.g. סכום'
+                      placeholder='לדוגמה: סכום'
                       value={form.columnMapping.value}
                       onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, value: e.target.value } })}
                     />
@@ -183,9 +183,9 @@ export default function EntitiesPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>ביטול</Button>
               <Button onClick={handleSubmit} disabled={upsertMutation.isPending}>
-                {editId ? "Update" : "Create"}
+                {editId ? "עדכן" : "צור"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -193,28 +193,28 @@ export default function EntitiesPage() {
       </div>
 
       {isLoading ? (
-        <Card><CardContent className="p-8 text-center text-muted-foreground">Loading...</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-muted-foreground">טוען...</CardContent></Card>
       ) : entities.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">
             <Building2 className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
-            <h3 className="font-semibold text-lg mb-1">No entities yet</h3>
-            <p className="text-muted-foreground text-sm">Add your first bank or credit card to get started</p>
+            <h3 className="font-semibold text-lg mb-1">אין ישויות עדיין</h3>
+            <p className="text-muted-foreground text-sm">הוסף את חשבון הבנק או כרטיס האשראי הראשון שלך</p>
           </CardContent>
         </Card>
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Your Entities</CardTitle>
+            <CardTitle className="text-lg">הישויות שלך</CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Column Mapping</TableHead>
-                  <TableHead className="w-24">Actions</TableHead>
+                  <TableHead>שם</TableHead>
+                  <TableHead>סוג</TableHead>
+                  <TableHead>מיפוי עמודות</TableHead>
+                  <TableHead className="w-24">פעולות</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -226,14 +226,14 @@ export default function EntitiesPage() {
                       <TableCell>
                         <Badge variant="secondary" className="gap-1">
                           {entity.type === "bank" ? <Building2 className="h-3 w-3" /> : <CreditCard className="h-3 w-3" />}
-                          {entity.type === "bank" ? "Bank" : "Credit Card"}
+                          {entity.type === "bank" ? "בנק" : "כרטיס אשראי"}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <div className="text-xs text-muted-foreground space-y-0.5">
-                          {mapping?.date && <div>Date → {mapping.date}</div>}
-                          {mapping?.sourceRecipient && <div>Source → {mapping.sourceRecipient}</div>}
-                          {mapping?.value && <div>Value → {mapping.value}</div>}
+                          {mapping?.date && <div>תאריך ← {mapping.date}</div>}
+                          {mapping?.sourceRecipient && <div>מקור ← {mapping.sourceRecipient}</div>}
+                          {mapping?.value && <div>סכום ← {mapping.value}</div>}
                         </div>
                       </TableCell>
                       <TableCell>
