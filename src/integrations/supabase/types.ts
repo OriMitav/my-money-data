@@ -52,6 +52,30 @@ export type Database = {
           },
         ]
       }
+      earners: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       financial_entities: {
         Row: {
           column_mapping: Json
@@ -81,6 +105,71 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      income_entries: {
+        Row: {
+          created_at: string
+          earner_id: string
+          id: string
+          month: number
+          source1_gross: number
+          source1_social: number
+          source1_tax: number
+          source2_gross: number
+          source2_social: number
+          source2_tax: number
+          source3_gross: number
+          source3_social: number
+          source3_tax: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          earner_id: string
+          id?: string
+          month: number
+          source1_gross?: number
+          source1_social?: number
+          source1_tax?: number
+          source2_gross?: number
+          source2_social?: number
+          source2_tax?: number
+          source3_gross?: number
+          source3_social?: number
+          source3_tax?: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          earner_id?: string
+          id?: string
+          month?: number
+          source1_gross?: number
+          source1_social?: number
+          source1_tax?: number
+          source2_gross?: number
+          source2_social?: number
+          source2_tax?: number
+          source3_gross?: number
+          source3_social?: number
+          source3_tax?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "income_entries_earner_id_fkey"
+            columns: ["earner_id"]
+            isOneToOne: false
+            referencedRelation: "earners"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       recipient_mappings: {
         Row: {
