@@ -17,11 +17,11 @@ import {
 import { Button } from "@/components/ui/button";
 
 const navItems = [
-  { title: "ישויות", url: "/entities", icon: Building2 },
-  { title: "העלאת דוחות", url: "/uploads", icon: Upload },
-  { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
-  { title: "קטגוריות", url: "/categories", icon: FolderOpen },
   { title: "לוח בקרה", url: "/dashboard", icon: LayoutDashboard },
+  { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
+  { title: "העלאת דוחות", url: "/uploads", icon: Upload },
+  { title: "קטגוריות", url: "/categories", icon: FolderOpen },
+  { title: "ישויות", url: "/entities", icon: Building2 },
 ];
 
 export function AppSidebar() {
@@ -36,9 +36,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>
             {!collapsed && (
-              <span className="text-xs font-bold uppercase tracking-wider text-sidebar-primary">
-                תזרים מזומנים
-              </span>
+              <span className="text-xs font-bold uppercase tracking-wider text-sidebar-primary">תזרים מזומנים</span>
             )}
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -65,9 +63,7 @@ export function AppSidebar() {
       <SidebarFooter>
         {!collapsed && (
           <div className="px-2 pb-2">
-            <p className="text-xs text-sidebar-foreground/60 truncate mb-2">
-              {user?.email}
-            </p>
+            <p className="text-xs text-sidebar-foreground/60 truncate mb-2">{user?.email}</p>
             <Button
               variant="ghost"
               size="sm"
