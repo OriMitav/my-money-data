@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 
 const navItems = [
   { title: "ישויות", url: "/entities", icon: Building2 },
-  { title: "העלאות", url: "/uploads", icon: Upload },
+  { title: "העלאת דוחות", url: "/uploads", icon: Upload },
   { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
   { title: "לוח בקרה", url: "/dashboard", icon: LayoutDashboard },
 ];
