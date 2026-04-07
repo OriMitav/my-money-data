@@ -158,6 +158,21 @@ export function parseXLSX(file: File): Promise<Record<string, unknown>[]> {
   });
 }
 
+/**
+ * Look up a value in a row, trying both the exact key and trimmed keys
+ * to handle column mapping or header whitespace mismatches.
+ */
+function getCol(row: Record<string, unknown>, key: string): unknown {
+  if (key in row) return row[key];
+  const trimmed = key.trim();
+  if (trimmed in row) return row[trimmed];
+  // Try matching trimmed row keys against trimmed mapping key
+  for (const k of Object.keys(row)) {
+    if (k.trim() === trimmed) return row[k];
+  }
+  return undefined;
+}
+
 export function applyMapping(
   rows: Record<string, unknown>[],
   mapping: ColumnMapping
@@ -166,19 +181,18 @@ export function applyMapping(
     .map((row) => {
       let value: number;
       if (mapping.credit && mapping.debit) {
-        // Dual column mode: credit is positive, debit is negative
-        const creditVal = cleanValue(row[mapping.credit]);
-        const debitVal = cleanValue(row[mapping.debit]);
+        const creditVal = cleanValue(getCol(row, mapping.credit));
+        const debitVal = cleanValue(getCol(row, mapping.debit));
         value = creditVal > 0 ? creditVal : debitVal > 0 ? -debitVal : 0;
       } else if (mapping.value) {
-        value = cleanValue(row[mapping.value]);
+        value = cleanValue(getCol(row, mapping.value));
       } else {
         value = 0;
       }
 
       return {
-        date: parseDate(row[mapping.date]),
-        sourceRecipient: String(row[mapping.sourceRecipient] ?? ""),
+        date: parseDate(getCol(row, mapping.date)),
+        sourceRecipient: String(getCol(row, mapping.sourceRecipient) ?? ""),
         value,
         rawData: row,
       };
