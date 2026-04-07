@@ -1,4 +1,4 @@
-import { Upload, ArrowLeftRight, LayoutDashboard, LogOut, FolderOpen, Settings, Receipt } from "lucide-react";
+import { Upload, ArrowLeftRight, LayoutDashboard, LogOut, FolderOpen, Settings, Receipt, PiggyBank } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,6 +21,7 @@ const navItems = [
   { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
   { title: "העלאת דוחות", url: "/uploads", icon: Upload },
   { title: "הכנסות ומיסוי", url: "/income-tax", icon: Receipt },
+  { title: "פנסיה וחסכונות", url: "/pension", icon: PiggyBank },
   { title: "קטגוריות", url: "/categories", icon: FolderOpen },
   { title: "הגדרות", url: "/settings", icon: Settings },
 ];
