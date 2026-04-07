@@ -6,11 +6,12 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
-import EntitiesPage from "@/pages/EntitiesPage";
 import UploadsPage from "@/pages/UploadsPage";
 import TransactionsPage from "@/pages/TransactionsPage";
 import DashboardPage from "@/pages/DashboardPage";
 import CategoriesPage from "@/pages/CategoriesPage";
+import SettingsPage from "@/pages/SettingsPage";
+import IncomeTaxPage from "@/pages/IncomeTaxPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,12 +32,13 @@ function ProtectedRoutes() {
   return (
     <AppLayout>
       <Routes>
-        <Route path="/" element={<Navigate to="/entities" replace />} />
-        <Route path="/entities" element={<EntitiesPage />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/uploads" element={<UploadsPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/income-tax" element={<IncomeTaxPage />} />
         <Route path="/categories" element={<CategoriesPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AppLayout>

@@ -1,4 +1,4 @@
-import { Building2, Upload, ArrowLeftRight, LayoutDashboard, LogOut, FolderOpen } from "lucide-react";
+import { Upload, ArrowLeftRight, LayoutDashboard, LogOut, FolderOpen, Settings, Receipt } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,8 +20,9 @@ const navItems = [
   { title: "לוח בקרה", url: "/dashboard", icon: LayoutDashboard },
   { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
   { title: "העלאת דוחות", url: "/uploads", icon: Upload },
+  { title: "הכנסות ומיסוי", url: "/income-tax", icon: Receipt },
   { title: "קטגוריות", url: "/categories", icon: FolderOpen },
-  { title: "ישויות", url: "/entities", icon: Building2 },
+  { title: "הגדרות", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
