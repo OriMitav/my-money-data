@@ -64,7 +64,8 @@ export default function DashboardPage() {
         .select("id, date, value, entity_id, relevant_transaction")
         .eq("user_id", user!.id)
         .eq("relevant_transaction", true)
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .limit(10000);
       if (error) throw error;
       return data as Transaction[];
     },

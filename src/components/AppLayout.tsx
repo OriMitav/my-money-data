@@ -8,10 +8,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <div className="min-h-screen flex w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col">
-          <header className="h-14 flex items-center border-b bg-card px-4">
+          <header className="h-14 flex items-center border-b bg-card px-2 sm:px-4">
             <SidebarTrigger />
           </header>
-          <main className="flex-1 p-6 overflow-auto">{children}</main>
+          <main className="flex-1 p-3 sm:p-6 overflow-auto">{children}</main>
         </div>
       </div>
     </SidebarProvider>
