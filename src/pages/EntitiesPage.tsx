@@ -10,25 +10,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Plus, Pencil, Trash2, Building2, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import type { Json } from "@/integrations/supabase/types";
+import type { ColumnMapping } from "@/lib/fileParser";
 
-interface ColumnMapping {
-  date: string;
-  sourceRecipient: string;
-  value: string;
-}
+type ValueMode = "single" | "dual";
 
 interface EntityForm {
   name: string;
   type: "bank" | "credit_card";
+  valueMode: ValueMode;
   columnMapping: ColumnMapping;
 }
 
 const emptyForm: EntityForm = {
   name: "",
   type: "bank",
+  valueMode: "single",
   columnMapping: { date: "", sourceRecipient: "", value: "" },
 };
 
@@ -53,10 +53,21 @@ export default function EntitiesPage() {
 
   const upsertMutation = useMutation({
     mutationFn: async (entity: EntityForm & { id?: string }) => {
+      const mapping: ColumnMapping = {
+        date: entity.columnMapping.date,
+        sourceRecipient: entity.columnMapping.sourceRecipient,
+      };
+      if (entity.valueMode === "dual") {
+        mapping.credit = entity.columnMapping.credit || "";
+        mapping.debit = entity.columnMapping.debit || "";
+      } else {
+        mapping.value = entity.columnMapping.value || "";
+      }
+
       const payload = {
         name: entity.name,
         type: entity.type,
-        column_mapping: entity.columnMapping as unknown as Json,
+        column_mapping: mapping as unknown as Json,
         user_id: user!.id,
       };
       if (entity.id) {
@@ -96,9 +107,11 @@ export default function EntitiesPage() {
 
   const openEdit = (entity: typeof entities[0]) => {
     const mapping = entity.column_mapping as unknown as ColumnMapping;
+    const valueMode: ValueMode = mapping?.credit || mapping?.debit ? "dual" : "single";
     setForm({
       name: entity.name,
       type: entity.type as "bank" | "credit_card",
+      valueMode,
       columnMapping: mapping || emptyForm.columnMapping,
     });
     setEditId(entity.id);
@@ -171,14 +184,54 @@ export default function EntitiesPage() {
                       onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, sourceRecipient: e.target.value } })}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">עמודת סכום</Label>
-                    <Input
-                      placeholder='לדוגמה: סכום'
-                      value={form.columnMapping.value}
-                      onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, value: e.target.value } })}
-                    />
+
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">סוג עמודת ערך</Label>
+                    <RadioGroup
+                      value={form.valueMode}
+                      onValueChange={(v) => setForm({ ...form, valueMode: v as ValueMode })}
+                      className="flex gap-4"
+                    >
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem value="single" id="val-single" />
+                        <Label htmlFor="val-single" className="text-xs cursor-pointer">עמודה אחת (סכום)</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem value="dual" id="val-dual" />
+                        <Label htmlFor="val-dual" className="text-xs cursor-pointer">שתי עמודות (זכות/חובה)</Label>
+                      </div>
+                    </RadioGroup>
                   </div>
+
+                  {form.valueMode === "single" ? (
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">עמודת סכום</Label>
+                      <Input
+                        placeholder='לדוגמה: סכום'
+                        value={form.columnMapping.value || ""}
+                        onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, value: e.target.value } })}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">עמודת זכות (הכנסה)</Label>
+                        <Input
+                          placeholder='לדוגמה: זכות'
+                          value={form.columnMapping.credit || ""}
+                          onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, credit: e.target.value } })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">עמודת חובה (הוצאה)</Label>
+                        <Input
+                          placeholder='לדוגמה: חובה'
+                          value={form.columnMapping.debit || ""}
+                          onChange={(e) => setForm({ ...form, columnMapping: { ...form.columnMapping, debit: e.target.value } })}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -234,6 +287,8 @@ export default function EntitiesPage() {
                           {mapping?.date && <div>תאריך ← {mapping.date}</div>}
                           {mapping?.sourceRecipient && <div>מקור ← {mapping.sourceRecipient}</div>}
                           {mapping?.value && <div>סכום ← {mapping.value}</div>}
+                          {mapping?.credit && <div>זכות ← {mapping.credit}</div>}
+                          {mapping?.debit && <div>חובה ← {mapping.debit}</div>}
                         </div>
                       </TableCell>
                       <TableCell>
