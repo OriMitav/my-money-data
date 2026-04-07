@@ -30,13 +30,28 @@ function parseDate(raw: unknown): string {
   if (!raw) return "";
   const str = String(raw).trim();
 
-  // Try DD/MM/YYYY or DD-MM-YYYY
-  const ddmmyyyy = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
-  if (ddmmyyyy) {
-    const day = ddmmyyyy[1].padStart(2, "0");
-    const month = ddmmyyyy[2].padStart(2, "0");
-    let year = ddmmyyyy[3];
+  // Match patterns like DD/MM/YYYY, MM/DD/YYYY, DD-MM-YYYY, DD.MM.YYYY
+  const parts = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
+  if (parts) {
+    const a = parseInt(parts[1]);
+    const b = parseInt(parts[2]);
+    let year = parts[3];
     if (year.length === 2) year = "20" + year;
+
+    let day: string, month: string;
+    if (a > 12) {
+      // First number > 12 → must be day (DD/MM/YYYY)
+      day = parts[1].padStart(2, "0");
+      month = parts[2].padStart(2, "0");
+    } else if (b > 12) {
+      // Second number > 12 → must be day (MM/DD/YYYY)
+      month = parts[1].padStart(2, "0");
+      day = parts[2].padStart(2, "0");
+    } else {
+      // Ambiguous (both ≤ 12) — use DD/MM/YYYY as default for Israeli format
+      day = parts[1].padStart(2, "0");
+      month = parts[2].padStart(2, "0");
+    }
     return `${year}-${month}-${day}`;
   }
 
