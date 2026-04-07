@@ -181,10 +181,10 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">לוח בקרה</h1>
-        <p className="text-muted-foreground">סקירה כללית של תזרים המזומנים</p>
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">לוח בקרה</h1>
+        <p className="text-sm text-muted-foreground">סקירה כללית של תזרים המזומנים</p>
       </div>
 
       {/* Timeline Slicer */}
@@ -209,7 +209,7 @@ export default function DashboardPage() {
       </Card>
 
       {/* Charts */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-4 sm:gap-6 grid-cols-1 md:grid-cols-2">
         {/* Chart 1: Incomes vs Expenses */}
         <Card>
           <CardHeader className="pb-2">
