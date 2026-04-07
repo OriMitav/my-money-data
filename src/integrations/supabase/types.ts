@@ -112,12 +112,15 @@ export type Database = {
           earner_id: string
           id: string
           month: number
+          source1_employer: string
           source1_gross: number
           source1_social: number
           source1_tax: number
+          source2_employer: string
           source2_gross: number
           source2_social: number
           source2_tax: number
+          source3_employer: string
           source3_gross: number
           source3_social: number
           source3_tax: number
@@ -130,12 +133,15 @@ export type Database = {
           earner_id: string
           id?: string
           month: number
+          source1_employer?: string
           source1_gross?: number
           source1_social?: number
           source1_tax?: number
+          source2_employer?: string
           source2_gross?: number
           source2_social?: number
           source2_tax?: number
+          source3_employer?: string
           source3_gross?: number
           source3_social?: number
           source3_tax?: number
@@ -148,12 +154,15 @@ export type Database = {
           earner_id?: string
           id?: string
           month?: number
+          source1_employer?: string
           source1_gross?: number
           source1_social?: number
           source1_tax?: number
+          source2_employer?: string
           source2_gross?: number
           source2_social?: number
           source2_tax?: number
+          source3_employer?: string
           source3_gross?: number
           source3_social?: number
           source3_tax?: number
