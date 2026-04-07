@@ -93,7 +93,10 @@ export default function TransactionsPage() {
   // Toggle mutations
   const toggleMutation = useMutation({
     mutationFn: async ({ id, field, value }: { id: string; field: "relevant_transaction" | "subscription"; value: boolean }) => {
-      const { error } = await supabase.from("transactions").update({ [field]: value }).eq("id", id);
+      const updatePayload = field === "relevant_transaction"
+        ? { relevant_transaction: value }
+        : { subscription: value };
+      const { error } = await supabase.from("transactions").update(updatePayload).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["transactions"] }),
