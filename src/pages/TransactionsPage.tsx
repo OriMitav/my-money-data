@@ -202,10 +202,10 @@ export default function TransactionsPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">תנועות</h1>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">תנועות</h1>
           <p className="text-muted-foreground">
             {filtered.length} תנועות{filtered.length !== transactions.length ? ` (מתוך ${transactions.length})` : ""}
           </p>
@@ -219,7 +219,7 @@ export default function TransactionsPage() {
       {/* Filters */}
       <Card>
         <CardContent className="pt-4 pb-4">
-          <div className="flex items-end gap-4 flex-wrap">
+          <div className="flex items-end gap-3 flex-wrap">
             <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
               <Filter className="h-4 w-4" />
               סינון:
@@ -309,14 +309,14 @@ export default function TransactionsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>תאריך</TableHead>
+                    <TableHead className="whitespace-nowrap">תאריך</TableHead>
                     <TableHead>נמען</TableHead>
-                    <TableHead>סכום</TableHead>
-                    <TableHead>שולם באמצעות</TableHead>
-                    <TableHead>מסגרת תשלום</TableHead>
-                    <TableHead>הכנסה/הוצאה</TableHead>
-                    <TableHead className="text-center">רלוונטי</TableHead>
-                    <TableHead className="text-center">מנוי</TableHead>
+                    <TableHead className="whitespace-nowrap">סכום</TableHead>
+                    <TableHead className="hidden md:table-cell whitespace-nowrap">שולם באמצעות</TableHead>
+                    <TableHead className="hidden lg:table-cell whitespace-nowrap">מסגרת תשלום</TableHead>
+                    <TableHead className="hidden sm:table-cell whitespace-nowrap">הכנסה/הוצאה</TableHead>
+                    <TableHead className="text-center whitespace-nowrap">רלוונטי</TableHead>
+                    <TableHead className="text-center whitespace-nowrap">מנוי</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -333,13 +333,13 @@ export default function TransactionsPage() {
                         <TableCell className={cn("font-medium whitespace-nowrap", isIncome ? "text-green-600" : "text-red-500")}>
                           {t.value > 0 ? "+" : ""}{t.value.toLocaleString("he-IL", { style: "currency", currency: "ILS" })}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden md:table-cell">
                           <Badge variant="outline" className="text-xs">{paidVia}</Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden lg:table-cell">
                           <Badge variant="secondary" className="text-xs">{entity?.name || "—"}</Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <Badge className={cn("text-xs", isIncome ? "bg-green-100 text-green-800 hover:bg-green-100" : "bg-red-100 text-red-800 hover:bg-red-100")}>
                             {isIncome ? "הכנסה" : "הוצאה"}
                           </Badge>
