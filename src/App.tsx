@@ -12,6 +12,7 @@ import DashboardPage from "@/pages/DashboardPage";
 import CategoriesPage from "@/pages/CategoriesPage";
 import SettingsPage from "@/pages/SettingsPage";
 import IncomeTaxPage from "@/pages/IncomeTaxPage";
+import PensionPage from "@/pages/PensionPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -37,6 +38,7 @@ function ProtectedRoutes() {
         <Route path="/uploads" element={<UploadsPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/income-tax" element={<IncomeTaxPage />} />
+        <Route path="/pension" element={<PensionPage />} />
         <Route path="/categories" element={<CategoriesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFound />} />
