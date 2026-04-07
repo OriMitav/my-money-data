@@ -14,7 +14,77 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      financial_entities: {
+        Row: {
+          column_mapping: Json
+          created_at: string
+          id: string
+          name: string
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          column_mapping?: Json
+          created_at?: string
+          id?: string
+          name: string
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          column_mapping?: Json
+          created_at?: string
+          id?: string
+          name?: string
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      transactions: {
+        Row: {
+          created_at: string
+          date: string
+          entity_id: string
+          id: string
+          raw_data: Json | null
+          source_recipient: string | null
+          user_id: string
+          value: number
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          entity_id: string
+          id?: string
+          raw_data?: Json | null
+          source_recipient?: string | null
+          user_id: string
+          value: number
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          entity_id?: string
+          id?: string
+          raw_data?: Json | null
+          source_recipient?: string | null
+          user_id?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_entity_id_fkey"
+            columns: ["entity_id"]
+            isOneToOne: false
+            referencedRelation: "financial_entities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
