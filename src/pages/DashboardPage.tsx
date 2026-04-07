@@ -5,7 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useQuery } from "@tanstack/react-query";
-import { format, parse, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
+import { format } from "date-fns";
 import { he } from "date-fns/locale";
 import {
   ChartContainer,
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/chart";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
 import { LayoutDashboard } from "lucide-react";
+import { fetchAllPages } from "@/lib/fetchAllPages";
 
 type Transaction = {
   id: string;
@@ -59,15 +60,20 @@ export default function DashboardPage() {
   const { data: transactions, isLoading } = useQuery({
     queryKey: ["transactions-dashboard", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("id, date, value, entity_id, relevant_transaction")
-        .eq("user_id", user!.id)
-        .eq("relevant_transaction", true)
-        .order("date", { ascending: true })
-        .limit(10000);
-      if (error) throw error;
-      return data as Transaction[];
+      return fetchAllPages<Transaction>(async (from, to) => {
+        const { data, error } = await supabase
+          .from("transactions")
+          .select("id, date, value, entity_id, relevant_transaction")
+          .eq("user_id", user!.id)
+          .eq("relevant_transaction", true)
+          .order("date", { ascending: true })
+          .range(from, to);
+
+        return {
+          data: data as Transaction[] | null,
+          error,
+        };
+      });
     },
     enabled: !!user,
   });
@@ -104,15 +110,18 @@ export default function DashboardPage() {
       }
 
       const entry = map.get(key)!;
+      const absoluteValue = Math.abs(t.value);
+
       if (t.value > 0) {
         entry.incomes += t.value;
       } else {
-        entry.expenses += Math.abs(t.value);
-        if (entity?.type === "bank") {
-          entry.directDebit += Math.abs(t.value);
-        } else if (entity?.type === "credit_card") {
-          entry.creditCard += Math.abs(t.value);
-        }
+        entry.expenses += absoluteValue;
+      }
+
+      if (entity?.type === "bank" && t.value < 0) {
+        entry.directDebit += absoluteValue;
+      } else if (entity?.type === "credit_card") {
+        entry.creditCard += absoluteValue;
       }
     });
 

@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
+import { fetchAllPages } from "@/lib/fetchAllPages";
 import { format } from "date-fns";
 import { he } from "date-fns/locale";
 import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X } from "lucide-react";
@@ -50,33 +51,43 @@ export default function TransactionsPage() {
   const [incomeFilter, setIncomeFilter] = useState<string>("all");
 
   const { data: transactions = [], isLoading } = useQuery({
-    queryKey: ["transactions"],
+    queryKey: ["transactions", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, financial_entities(name, type)")
-        .order("date", { ascending: false });
-      if (error) throw error;
-      return data as unknown as TransactionRow[];
+      return fetchAllPages<TransactionRow>(async (from, to) => {
+        const { data, error } = await supabase
+          .from("transactions")
+          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, financial_entities(name, type)")
+          .eq("user_id", user!.id)
+          .order("date", { ascending: false })
+          .range(from, to);
+
+        return {
+          data: data as unknown as TransactionRow[] | null,
+          error,
+        };
+      });
     },
+    enabled: !!user,
   });
 
   const { data: entities = [] } = useQuery({
-    queryKey: ["financial_entities"],
+    queryKey: ["financial_entities", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("financial_entities").select("id, name").order("name");
+      const { data, error } = await supabase.from("financial_entities").select("id, name").eq("user_id", user!.id).order("name");
       if (error) throw error;
       return data;
     },
+    enabled: !!user,
   });
 
   const { data: recipientMappings = [] } = useQuery({
-    queryKey: ["recipient_mappings"],
+    queryKey: ["recipient_mappings", user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase.from("recipient_mappings").select("*");
+      const { data, error } = await supabase.from("recipient_mappings").select("*").eq("user_id", user!.id);
       if (error) throw error;
       return data as RecipientMapping[];
     },
+    enabled: !!user,
   });
 
   const mappingsMap = useMemo(() => {
