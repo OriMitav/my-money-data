@@ -29,12 +29,15 @@ interface IncomeEntry {
   earner_id: string;
   year: number;
   month: number;
+  source1_employer: string;
   source1_gross: number;
   source1_tax: number;
   source1_social: number;
+  source2_employer: string;
   source2_gross: number;
   source2_tax: number;
   source2_social: number;
+  source3_employer: string;
   source3_gross: number;
   source3_tax: number;
   source3_social: number;
@@ -48,7 +51,7 @@ export default function IncomeTaxPage() {
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
   const [selectedEarner, setSelectedEarner] = useState<string | null>(null);
   const [entryForm, setEntryForm] = useState({ year: new Date().getFullYear(), month: 1,
-    s1g: 0, s1t: 0, s1s: 0, s2g: 0, s2t: 0, s2s: 0, s3g: 0, s3t: 0, s3s: 0 });
+    s1e: "", s1g: 0, s1t: 0, s1s: 0, s2e: "", s2g: 0, s2t: 0, s2s: 0, s3e: "", s3g: 0, s3t: 0, s3s: 0 });
   const [editEntryId, setEditEntryId] = useState<string | null>(null);
 
   const { data: earners = [] } = useQuery({
@@ -95,12 +98,15 @@ export default function IncomeTaxPage() {
         earner_id: selectedEarner,
         year: entryForm.year,
         month: entryForm.month,
+        source1_employer: entryForm.s1e,
         source1_gross: entryForm.s1g,
         source1_tax: entryForm.s1t,
         source1_social: entryForm.s1s,
+        source2_employer: entryForm.s2e,
         source2_gross: entryForm.s2g,
         source2_tax: entryForm.s2t,
         source2_social: entryForm.s2s,
+        source3_employer: entryForm.s3e,
         source3_gross: entryForm.s3g,
         source3_tax: entryForm.s3t,
         source3_social: entryForm.s3s,
@@ -137,7 +143,7 @@ export default function IncomeTaxPage() {
     setSelectedEarner(earnerId);
     setEditEntryId(null);
     setEntryForm({ year: new Date().getFullYear(), month: new Date().getMonth() + 1,
-      s1g: 0, s1t: 0, s1s: 0, s2g: 0, s2t: 0, s2s: 0, s3g: 0, s3t: 0, s3s: 0 });
+      s1e: "", s1g: 0, s1t: 0, s1s: 0, s2e: "", s2g: 0, s2t: 0, s2s: 0, s3e: "", s3g: 0, s3t: 0, s3s: 0 });
     setEntryDialogOpen(true);
   };
 
@@ -146,9 +152,9 @@ export default function IncomeTaxPage() {
     setEditEntryId(entry.id);
     setEntryForm({
       year: entry.year, month: entry.month,
-      s1g: Number(entry.source1_gross), s1t: Number(entry.source1_tax), s1s: Number(entry.source1_social),
-      s2g: Number(entry.source2_gross), s2t: Number(entry.source2_tax), s2s: Number(entry.source2_social),
-      s3g: Number(entry.source3_gross), s3t: Number(entry.source3_tax), s3s: Number(entry.source3_social),
+      s1e: entry.source1_employer || "", s1g: Number(entry.source1_gross), s1t: Number(entry.source1_tax), s1s: Number(entry.source1_social),
+      s2e: entry.source2_employer || "", s2g: Number(entry.source2_gross), s2t: Number(entry.source2_tax), s2s: Number(entry.source2_social),
+      s3e: entry.source3_employer || "", s3g: Number(entry.source3_gross), s3t: Number(entry.source3_tax), s3s: Number(entry.source3_social),
     });
     setEntryDialogOpen(true);
   };
