@@ -180,6 +180,128 @@ export type Database = {
           },
         ]
       }
+      pension_entries: {
+        Row: {
+          closing_balance: number
+          compensation: number
+          created_at: string
+          employee_contribution: number
+          employer: string
+          employer_contribution: number
+          fund_id: string
+          fund_name: string
+          id: string
+          month: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          closing_balance?: number
+          compensation?: number
+          created_at?: string
+          employee_contribution?: number
+          employer?: string
+          employer_contribution?: number
+          fund_id: string
+          fund_name?: string
+          id?: string
+          month: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          closing_balance?: number
+          compensation?: number
+          created_at?: string
+          employee_contribution?: number
+          employer?: string
+          employer_contribution?: number
+          fund_id?: string
+          fund_name?: string
+          id?: string
+          month?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pension_entries_fund_id_fkey"
+            columns: ["fund_id"]
+            isOneToOne: false
+            referencedRelation: "pension_funds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pension_funds: {
+        Row: {
+          accessible: boolean
+          created_at: string
+          employer: string
+          fund_name: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accessible?: boolean
+          created_at?: string
+          employer?: string
+          fund_name?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          accessible?: boolean
+          created_at?: string
+          employer?: string
+          fund_name?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      pension_settings: {
+        Row: {
+          accumulation_fee_pct: number
+          created_at: string
+          default_employer: string
+          default_fund_name: string
+          deposit_fee_pct: number
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accumulation_fee_pct?: number
+          created_at?: string
+          default_employer?: string
+          default_fund_name?: string
+          deposit_fee_pct?: number
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          accumulation_fee_pct?: number
+          created_at?: string
+          default_employer?: string
+          default_fund_name?: string
+          deposit_fee_pct?: number
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       recipient_mappings: {
         Row: {
           created_at: string
