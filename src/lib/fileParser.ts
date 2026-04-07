@@ -14,6 +14,7 @@ export interface ColumnMapping {
   value?: string;
   credit?: string;
   debit?: string;
+  dateFormat?: "DMY" | "MDY";
 }
 
 function cleanValue(raw: unknown): number {
