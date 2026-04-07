@@ -242,18 +242,21 @@ export default function IncomeTaxPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead rowSpan={2} className="border-l align-middle">חודש</TableHead>
-                          <TableHead colSpan={3} className="text-center border-l">מקור 1</TableHead>
-                          <TableHead colSpan={3} className="text-center border-l">מקור 2</TableHead>
-                          <TableHead colSpan={3} className="text-center border-l">מקור 3</TableHead>
+                          <TableHead colSpan={4} className="text-center border-l">מקור 1</TableHead>
+                          <TableHead colSpan={4} className="text-center border-l">מקור 2</TableHead>
+                          <TableHead colSpan={4} className="text-center border-l">מקור 3</TableHead>
                           <TableHead rowSpan={2} className="align-middle w-16">פעולות</TableHead>
                         </TableRow>
                         <TableRow>
+                          <TableHead className="text-xs">מעסיק</TableHead>
                           <TableHead className="text-xs">ברוטו</TableHead>
                           <TableHead className="text-xs">מס הכנסה</TableHead>
                           <TableHead className="text-xs border-l">ביטוח לאומי</TableHead>
+                          <TableHead className="text-xs">מעסיק</TableHead>
                           <TableHead className="text-xs">ברוטו</TableHead>
                           <TableHead className="text-xs">מס הכנסה</TableHead>
                           <TableHead className="text-xs border-l">ביטוח לאומי</TableHead>
+                          <TableHead className="text-xs">מעסיק</TableHead>
                           <TableHead className="text-xs">ברוטו</TableHead>
                           <TableHead className="text-xs">מס הכנסה</TableHead>
                           <TableHead className="text-xs border-l">ביטוח לאומי</TableHead>
@@ -262,7 +265,7 @@ export default function IncomeTaxPage() {
                       <TableBody>
                         {earnerEntries.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                            <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
                               אין נתונים עדיין. לחץ "הוסף חודש" כדי להתחיל.
                             </TableCell>
                           </TableRow>
@@ -273,12 +276,15 @@ export default function IncomeTaxPage() {
                                 <TableCell className="border-l font-medium whitespace-nowrap">
                                   {MONTHS[entry.month - 1]} {entry.year}
                                 </TableCell>
+                                <TableCell className="text-xs">{entry.source1_employer || "-"}</TableCell>
                                 <TableCell className="text-xs">{fmt(Number(entry.source1_gross))}</TableCell>
                                 <TableCell className="text-xs">{fmt(Number(entry.source1_tax))}</TableCell>
                                 <TableCell className="text-xs border-l">{fmt(Number(entry.source1_social))}</TableCell>
+                                <TableCell className="text-xs">{entry.source2_employer || "-"}</TableCell>
                                 <TableCell className="text-xs">{fmt(Number(entry.source2_gross))}</TableCell>
                                 <TableCell className="text-xs">{fmt(Number(entry.source2_tax))}</TableCell>
                                 <TableCell className="text-xs border-l">{fmt(Number(entry.source2_social))}</TableCell>
+                                <TableCell className="text-xs">{entry.source3_employer || "-"}</TableCell>
                                 <TableCell className="text-xs">{fmt(Number(entry.source3_gross))}</TableCell>
                                 <TableCell className="text-xs">{fmt(Number(entry.source3_tax))}</TableCell>
                                 <TableCell className="text-xs border-l">{fmt(Number(entry.source3_social))}</TableCell>
@@ -291,10 +297,10 @@ export default function IncomeTaxPage() {
                             ))}
                             <TableRow className="bg-muted/30 font-semibold">
                               <TableCell className="border-l">סה״כ</TableCell>
-                              <TableCell colSpan={3} className="text-center border-l">
+                              <TableCell colSpan={4} className="text-center border-l">
                                 ברוטו: {fmt(earnerGross)} | מס: {fmt(earnerTax)} | ביטוח: {fmt(earnerSocial)}
                               </TableCell>
-                              <TableCell colSpan={6}></TableCell>
+                              <TableCell colSpan={8}></TableCell>
                               <TableCell></TableCell>
                             </TableRow>
                           </>
