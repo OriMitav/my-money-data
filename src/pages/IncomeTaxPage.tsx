@@ -356,24 +356,30 @@ export default function IncomeTaxPage() {
             </div>
 
             {[
-              { label: "מקור הכנסה 1", gKey: "s1g" as const, tKey: "s1t" as const, sKey: "s1s" as const },
-              { label: "מקור הכנסה 2", gKey: "s2g" as const, tKey: "s2t" as const, sKey: "s2s" as const },
-              { label: "מקור הכנסה 3", gKey: "s3g" as const, tKey: "s3t" as const, sKey: "s3s" as const },
+              { label: "מקור הכנסה 1", eKey: "s1e" as const, gKey: "s1g" as const, tKey: "s1t" as const, sKey: "s1s" as const },
+              { label: "מקור הכנסה 2", eKey: "s2e" as const, gKey: "s2g" as const, tKey: "s2t" as const, sKey: "s2s" as const },
+              { label: "מקור הכנסה 3", eKey: "s3e" as const, gKey: "s3g" as const, tKey: "s3t" as const, sKey: "s3s" as const },
             ].map((src) => (
               <div key={src.label} className="space-y-3">
                 <Label className="font-semibold">{src.label}</Label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">ברוטו</Label>
-                    <Input type="number" value={entryForm[src.gKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.gKey]: Number(e.target.value) })} />
+                    <Label className="text-xs text-muted-foreground">שם מעסיק</Label>
+                    <Input value={entryForm[src.eKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.eKey]: e.target.value })} placeholder="לדוגמה: חברה בע״מ" />
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">מס הכנסה</Label>
-                    <Input type="number" value={entryForm[src.tKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.tKey]: Number(e.target.value) })} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">ביטוח לאומי</Label>
-                    <Input type="number" value={entryForm[src.sKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.sKey]: Number(e.target.value) })} />
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">ברוטו</Label>
+                      <Input type="number" value={entryForm[src.gKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.gKey]: Number(e.target.value) })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">מס הכנסה</Label>
+                      <Input type="number" value={entryForm[src.tKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.tKey]: Number(e.target.value) })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">ביטוח לאומי</Label>
+                      <Input type="number" value={entryForm[src.sKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.sKey]: Number(e.target.value) })} />
+                    </div>
                   </div>
                 </div>
               </div>
