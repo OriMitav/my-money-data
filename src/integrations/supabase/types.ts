@@ -44,6 +44,30 @@ export type Database = {
         }
         Relationships: []
       }
+      recipient_mappings: {
+        Row: {
+          created_at: string
+          custom_name: string
+          id: string
+          original_name: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          custom_name: string
+          id?: string
+          original_name: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          custom_name?: string
+          id?: string
+          original_name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           created_at: string
@@ -51,7 +75,9 @@ export type Database = {
           entity_id: string
           id: string
           raw_data: Json | null
+          relevant_transaction: boolean
           source_recipient: string | null
+          subscription: boolean
           upload_id: string | null
           user_id: string
           value: number
@@ -62,7 +88,9 @@ export type Database = {
           entity_id: string
           id?: string
           raw_data?: Json | null
+          relevant_transaction?: boolean
           source_recipient?: string | null
+          subscription?: boolean
           upload_id?: string | null
           user_id: string
           value: number
@@ -73,7 +101,9 @@ export type Database = {
           entity_id?: string
           id?: string
           raw_data?: Json | null
+          relevant_transaction?: boolean
           source_recipient?: string | null
+          subscription?: boolean
           upload_id?: string | null
           user_id?: string
           value?: number
