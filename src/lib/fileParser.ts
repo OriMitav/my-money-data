@@ -19,6 +19,7 @@ export interface ColumnMapping {
 function cleanValue(raw: unknown): number {
   if (typeof raw === "number") return raw;
   const str = String(raw ?? "")
+    .replace(/[\u200F\u200E\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069]/g, "")
     .replace(/[₪$€,\s]/g, "")
     .replace(/[^\d.\-]/g, "");
   const num = parseFloat(str);
