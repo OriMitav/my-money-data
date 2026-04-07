@@ -99,13 +99,13 @@ export default function UploadsPage() {
       const entity = entities.find((e) => e.id === entityId);
       if (!entity) throw new Error("ישות לא נמצאה");
 
-      const mapping = entity.column_mapping as unknown as {
-        date: string;
-        sourceRecipient: string;
-        value: string;
-      };
-      if (!mapping?.date || !mapping?.sourceRecipient || !mapping?.value) {
+      const mapping = entity.column_mapping as unknown as ColumnMapping;
+      if (!mapping?.date || !mapping?.sourceRecipient) {
         throw new Error("מיפוי העמודות של הישות אינו שלם");
+      }
+      const hasValue = mapping.value || (mapping.credit && mapping.debit);
+      if (!hasValue) {
+        throw new Error("מיפוי העמודות חייב לכלול עמודת סכום או עמודות זכות/חובה");
       }
 
       // Parse file
