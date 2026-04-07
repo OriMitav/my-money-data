@@ -124,11 +124,11 @@ export default function EntitiesPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">ישויות פיננסיות</h1>
-          <p className="text-muted-foreground">ניהול חשבונות בנק וכרטיסי אשראי</p>
+          <h2 className="text-xl font-bold tracking-tight">ישויות פיננסיות</h2>
+          <p className="text-muted-foreground text-sm">ניהול חשבונות בנק וכרטיסי אשראי</p>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setEditId(null); setForm(emptyForm); } }}>
           <DialogTrigger asChild>
