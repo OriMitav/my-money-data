@@ -52,6 +52,7 @@ export type Database = {
           id: string
           raw_data: Json | null
           source_recipient: string | null
+          upload_id: string | null
           user_id: string
           value: number
         }
@@ -62,6 +63,7 @@ export type Database = {
           id?: string
           raw_data?: Json | null
           source_recipient?: string | null
+          upload_id?: string | null
           user_id: string
           value: number
         }
@@ -72,12 +74,64 @@ export type Database = {
           id?: string
           raw_data?: Json | null
           source_recipient?: string | null
+          upload_id?: string | null
           user_id?: string
           value?: number
         }
         Relationships: [
           {
             foreignKeyName: "transactions_entity_id_fkey"
+            columns: ["entity_id"]
+            isOneToOne: false
+            referencedRelation: "financial_entities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      uploads: {
+        Row: {
+          created_at: string
+          entity_id: string
+          file_name: string
+          id: string
+          month: number
+          storage_path: string
+          transaction_count: number
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          entity_id: string
+          file_name: string
+          id?: string
+          month: number
+          storage_path: string
+          transaction_count?: number
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          entity_id?: string
+          file_name?: string
+          id?: string
+          month?: number
+          storage_path?: string
+          transaction_count?: number
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "uploads_entity_id_fkey"
             columns: ["entity_id"]
             isOneToOne: false
             referencedRelation: "financial_entities"
