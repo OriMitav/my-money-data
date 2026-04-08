@@ -255,6 +255,9 @@ export type Database = {
           fund_name: string
           id: string
           name: string
+          parent_matching: boolean
+          state_deposit_amount: number
+          type: string
           updated_at: string
           user_id: string
         }
@@ -267,6 +270,9 @@ export type Database = {
           fund_name?: string
           id?: string
           name: string
+          parent_matching?: boolean
+          state_deposit_amount?: number
+          type?: string
           updated_at?: string
           user_id: string
         }
@@ -279,6 +285,9 @@ export type Database = {
           fund_name?: string
           id?: string
           name?: string
+          parent_matching?: boolean
+          state_deposit_amount?: number
+          type?: string
           updated_at?: string
           user_id?: string
         }
