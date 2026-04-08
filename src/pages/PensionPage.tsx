@@ -70,6 +70,7 @@ export default function PensionPage() {
   const [fundDialogOpen, setFundDialogOpen] = useState(false);
   const [fundDialogType, setFundDialogType] = useState<FundType>("pension");
   const [fundName, setFundName] = useState("");
+  const [selfTradingSubtype, setSelfTradingSubtype] = useState<"stocks" | "dividend">("stocks");
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [settingsFundId, setSettingsFundId] = useState<string | null>(null);
   const [settingsForm, setSettingsForm] = useState({
@@ -104,12 +105,15 @@ export default function PensionPage() {
   });
 
   const getFundsByType = (type: FundType) => funds.filter(f => f.type === type);
+  const isDividendFund = (fund: PensionFund) => fund.type === "self_trading" && fund.fund_name === "dividend";
 
   const createFund = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("pension_funds").insert({
-        name: fundName, user_id: user!.id, type: fundDialogType,
-      } as any);
+      const payload: any = { name: fundName, user_id: user!.id, type: fundDialogType };
+      if (fundDialogType === "self_trading") {
+        payload.fund_name = selfTradingSubtype;
+      }
+      const { error } = await supabase.from("pension_funds").insert(payload);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -148,7 +152,7 @@ export default function PensionPage() {
       if (!settingsFundId) return;
       const fund = funds.find(f => f.id === settingsFundId);
       const updatePayload: any = {};
-      if (fund?.type === "pension") {
+      if (fund?.type === "pension" || fund?.type === "hishtalmut") {
         updatePayload.employer = settingsForm.employer;
         updatePayload.fund_name = settingsForm.fund_name;
         updatePayload.deposit_fee_pct = settingsForm.deposit_fee_pct;
@@ -156,13 +160,7 @@ export default function PensionPage() {
       } else if (fund?.type === "child_savings") {
         updatePayload.parent_matching = settingsForm.parent_matching;
         updatePayload.state_deposit_amount = settingsForm.state_deposit_amount;
-      } else if (fund?.type === "hishtalmut") {
-        updatePayload.employer = settingsForm.employer;
-        updatePayload.fund_name = settingsForm.fund_name;
-        updatePayload.deposit_fee_pct = settingsForm.deposit_fee_pct;
-        updatePayload.accumulation_fee_pct = settingsForm.accumulation_fee_pct;
       }
-      // self_trading and other have no special settings
       const { error } = await supabase.from("pension_funds").update(updatePayload).eq("id", settingsFundId);
       if (error) throw error;
     },
@@ -188,15 +186,15 @@ export default function PensionPage() {
 
       let totalDeposit = 0;
       if (fund?.type === "child_savings") {
-        totalDeposit = entryForm.employee + entryForm.employerC; // deposit + parent match
-      } else if (fund?.type === "other") {
-        totalDeposit = entryForm.employee; // just deposit
+        totalDeposit = entryForm.employee + entryForm.employerC;
+      } else if (fund?.type === "other" || fund?.type === "self_trading") {
+        totalDeposit = entryForm.employee;
       } else {
         totalDeposit = entryForm.employee + entryForm.employerC + entryForm.compensation;
       }
 
       let calcFees = entryForm.management_fees;
-      if (!calcFees && fund?.type !== "child_savings" && fund?.type !== "other") {
+      if (!calcFees && (fund?.type === "pension" || fund?.type === "hishtalmut")) {
         const depositFee = (fund?.deposit_fee_pct || 0) / 100 * totalDeposit;
         const accumFee = (fund?.accumulation_fee_pct || 0) / 100 / 12 * prevBalance;
         calcFees = depositFee + accumFee;
@@ -205,6 +203,9 @@ export default function PensionPage() {
       const monthlyGrowth = entryForm.closing - prevBalance;
       const profit = entryForm.closing - (prevBalance + totalDeposit - calcFees);
       const monthlyReturn = prevBalance > 0 ? profit / prevBalance : 0;
+
+      // For dividend funds, compensation stores the dividend amount
+      const compensationVal = isDividendFund(fund!) ? entryForm.compensation : entryForm.compensation;
 
       const payload: any = {
         user_id: user!.id,
@@ -215,7 +216,7 @@ export default function PensionPage() {
         fund_name: entryForm.fund_name,
         employee_contribution: entryForm.employee,
         employer_contribution: entryForm.employerC,
-        compensation: entryForm.compensation,
+        compensation: compensationVal,
         closing_balance: entryForm.closing,
         management_fees: calcFees,
         monthly_growth: monthlyGrowth,
@@ -305,7 +306,6 @@ export default function PensionPage() {
     return sorted.length > 0 ? Number(sorted[sorted.length - 1].closing_balance) : 0;
   };
 
-  // Fixed: find closest entry to target date instead of exact match
   const getReturnSummary = (fundId: string) => {
     const sorted = getEntriesSorted(fundId);
     if (sorted.length < 2) return { y1: null, y3: null, y5: null, p1: null, p3: null, p5: null };
@@ -325,7 +325,6 @@ export default function PensionPage() {
         const dist = Math.abs(eDate.getTime() - targetTime);
         if (dist < closestDist) { closestDist = dist; closest = e; }
       }
-      // Only accept if within 2 months of target
       if (closest && closestDist <= 62 * 24 * 60 * 60 * 1000) return closest;
       return null;
     };
@@ -361,49 +360,60 @@ export default function PensionPage() {
   const openCreateDialog = (type: FundType) => {
     setFundDialogType(type);
     setFundName("");
+    setSelfTradingSubtype("stocks");
     setFundDialogOpen(true);
   };
 
   const totalAccessible = funds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0);
   const grandTotal = funds.reduce((s, f) => s + getLatestBalance(f.id), 0);
+  const nonChildFunds = funds.filter(f => f.type !== "child_savings");
+  const childFunds = funds.filter(f => f.type === "child_savings");
 
   const currentFundType = selectedFund ? funds.find(f => f.id === selectedFund)?.type : undefined;
   const settingsFund = settingsFundId ? funds.find(f => f.id === settingsFundId) : null;
 
-  // Render return summary cards
   const renderReturnCards = (fundId: string) => {
     const rs = getReturnSummary(fundId);
+    const balance = getLatestBalance(fundId);
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {[
-          { label: "תשואה שנה", val: rs.y1 },
-          { label: "תשואה 3 שנים", val: rs.y3 },
-          { label: "תשואה 5 שנים", val: rs.y5 },
-          { label: "רווח שנה", val: rs.p1, isMoney: true },
-          { label: "רווח 3 שנים", val: rs.p3, isMoney: true },
-          { label: "רווח 5 שנים", val: rs.p5, isMoney: true },
-        ].map(({ label, val, isMoney }) => (
-          <Card key={label}>
-            <CardContent className="p-3 text-center">
-              <p className="text-xs text-muted-foreground mb-1">{label}</p>
-              {val !== null && val !== undefined ? (
-                <p className={`text-sm font-bold ${val >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  {isMoney ? fmt(val) : pct(val)}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">אין נתונים</p>
-              )}
-            </CardContent>
-          </Card>
-        ))}
+      <div className="space-y-3">
+        <Card className="bg-primary/5 border-primary/20">
+          <CardContent className="p-4 text-center">
+            <p className="text-sm text-muted-foreground mb-1">סה״כ חיסכון בקופה</p>
+            <p className="text-3xl font-bold">{fmt(balance)}</p>
+          </CardContent>
+        </Card>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {[
+            { label: "תשואה שנה", val: rs.y1 },
+            { label: "תשואה 3 שנים", val: rs.y3 },
+            { label: "תשואה 5 שנים", val: rs.y5 },
+            { label: "רווח שנה", val: rs.p1, isMoney: true },
+            { label: "רווח 3 שנים", val: rs.p3, isMoney: true },
+            { label: "רווח 5 שנים", val: rs.p5, isMoney: true },
+          ].map(({ label, val, isMoney }) => (
+            <Card key={label}>
+              <CardContent className="p-3 text-center">
+                <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                {val !== null && val !== undefined ? (
+                  <p className={`text-sm font-bold ${val >= 0 ? "text-green-600" : "text-red-600"}`}>
+                    {isMoney ? fmt(val) : pct(val)}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">אין נתונים</p>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </div>
     );
   };
 
-  // Render fund tab content based on type
   const renderFundContent = (fund: PensionFund) => {
     const fundEntries = getEntriesSorted(fund.id);
     const showSettings = fund.type !== "self_trading" && fund.type !== "other";
+    const isDividend = isDividendFund(fund);
 
     return (
       <TabsContent key={fund.id} value={fund.id} className="space-y-4">
@@ -444,11 +454,13 @@ export default function PensionPage() {
                   {fund.type === "hishtalmut" && <TableHead>פיצויים</TableHead>}
                   {fund.type === "child_savings" && <TableHead>הפקדת מדינה</TableHead>}
                   {fund.type === "child_savings" && fund.parent_matching && <TableHead>הפקדת הורים</TableHead>}
+                  {fund.type === "self_trading" && <TableHead>הפקדה</TableHead>}
+                  {isDividend && <TableHead>דיבידנד</TableHead>}
                   {fund.type === "other" && <TableHead>הפקדה</TableHead>}
-                  <TableHead>סה״כ הפקדה</TableHead>
+                  {(fund.type !== "self_trading" || !isDividend) && fund.type !== "other" && <TableHead>סה״כ הפקדה</TableHead>}
                   {(fund.type === "pension" || fund.type === "hishtalmut") && <TableHead>דמי ניהול</TableHead>}
                   <TableHead>רווח חודשי</TableHead>
-                  {fund.type === "other" ? <TableHead>שווי</TableHead> : <TableHead>יתרת סגירה</TableHead>}
+                  {fund.type === "other" ? <TableHead>שווי</TableHead> : <TableHead>שווי תיק</TableHead>}
                   <TableHead>תשואה חודשית</TableHead>
                 </TableRow>
               </TableHeader>
@@ -465,7 +477,7 @@ export default function PensionPage() {
                     let totalDeposit: number;
                     if (fund.type === "child_savings") {
                       totalDeposit = Number(entry.employee_contribution) + Number(entry.employer_contribution);
-                    } else if (fund.type === "other") {
+                    } else if (fund.type === "other" || fund.type === "self_trading") {
                       totalDeposit = Number(entry.employee_contribution);
                     } else {
                       totalDeposit = Number(entry.employee_contribution) + Number(entry.employer_contribution) + Number(entry.compensation);
@@ -491,8 +503,12 @@ export default function PensionPage() {
                         {fund.type === "hishtalmut" && <TableCell className="text-sm">{fmt(Number(entry.compensation))}</TableCell>}
                         {fund.type === "child_savings" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
                         {fund.type === "child_savings" && fund.parent_matching && <TableCell className="text-sm">{fmt(Number(entry.employer_contribution))}</TableCell>}
+                        {fund.type === "self_trading" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
+                        {isDividend && <TableCell className="text-sm">{fmt(Number(entry.compensation))}</TableCell>}
                         {fund.type === "other" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
-                        <TableCell className="text-sm font-medium">{fmt(totalDeposit)}</TableCell>
+                        {(fund.type !== "self_trading" || !isDividend) && fund.type !== "other" && (
+                          <TableCell className="text-sm font-medium">{fmt(totalDeposit)}</TableCell>
+                        )}
                         {(fund.type === "pension" || fund.type === "hishtalmut") && <TableCell className="text-sm">{fmt(fees)}</TableCell>}
                         <TableCell className={`text-sm font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
                           {fmt(profit)}
@@ -513,7 +529,6 @@ export default function PensionPage() {
     );
   };
 
-  // Render a section for a fund type
   const renderTypeSection = (type: FundType) => {
     const typeFunds = getFundsByType(type);
     const config = TAB_CONFIG.find(t => t.type === type)!;
@@ -526,25 +541,15 @@ export default function PensionPage() {
           </Button>
         </div>
 
-        {type === "self_trading" && typeFunds.length === 0 && (
+        {typeFunds.length === 0 ? (
           <Card>
             <CardContent className="p-12 text-center">
-              <TrendingUp className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
-              <h3 className="font-semibold text-lg mb-1">מסחר עצמי</h3>
-              <p className="text-muted-foreground text-sm">הוסף תיק מסחר כדי להתחיל לעקוב</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {typeFunds.length === 0 && type !== "self_trading" ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              {config.icon && <div className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4 flex items-center justify-center">{config.icon}</div>}
+              <div className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4 flex items-center justify-center">{config.icon}</div>
               <h3 className="font-semibold text-lg mb-1">אין קרנות עדיין</h3>
-              <p className="text-muted-foreground text-sm">לחץ על "{config.createLabel}" כדי להתחיל</p>
+              <p className="text-muted-foreground text-sm">לחץ על &quot;{config.createLabel}&quot; כדי להתחיל</p>
             </CardContent>
           </Card>
-        ) : typeFunds.length > 0 && (
+        ) : (
           <Tabs value={selectedFund && typeFunds.some(f => f.id === selectedFund) ? selectedFund : typeFunds[0]?.id || ""} onValueChange={setSelectedFund} dir="rtl">
             <TabsList className="flex-wrap h-auto">
               {typeFunds.map(f => (
@@ -558,10 +563,10 @@ export default function PensionPage() {
     );
   };
 
-  // Entry dialog fields based on fund type
   const renderEntryFormFields = () => {
     const fund = selectedFund ? funds.find(f => f.id === selectedFund) : null;
     const type = fund?.type || "pension";
+    const isDividend = fund ? isDividendFund(fund) : false;
 
     return (
       <div className="space-y-4 py-4">
@@ -649,6 +654,21 @@ export default function PensionPage() {
           </div>
         )}
 
+        {type === "self_trading" && (
+          <div className={`grid ${isDividend ? "grid-cols-2" : "grid-cols-1"} gap-4`}>
+            <div className="space-y-2">
+              <Label>הפקדה</Label>
+              <Input type="number" value={entryForm.employee} onChange={(e) => setEntryForm({ ...entryForm, employee: Number(e.target.value) })} />
+            </div>
+            {isDividend && (
+              <div className="space-y-2">
+                <Label>דיבידנד</Label>
+                <Input type="number" value={entryForm.compensation} onChange={(e) => setEntryForm({ ...entryForm, compensation: Number(e.target.value) })} />
+              </div>
+            )}
+          </div>
+        )}
+
         {type === "other" && (
           <div className="space-y-2">
             <Label>הפקדה</Label>
@@ -671,7 +691,7 @@ export default function PensionPage() {
 
         {(type === "child_savings" || type === "self_trading" || type === "other") && (
           <div className="space-y-2">
-            <Label>{type === "other" ? "שווי" : "יתרת סגירה"}</Label>
+            <Label>{type === "other" ? "שווי" : "שווי תיק"}</Label>
             <Input type="number" value={entryForm.closing} onChange={(e) => setEntryForm({ ...entryForm, closing: Number(e.target.value) })} />
           </div>
         )}
@@ -679,7 +699,6 @@ export default function PensionPage() {
     );
   };
 
-  // Settings dialog content based on fund type
   const renderSettingsFields = () => {
     if (!settingsFund) return null;
     const type = settingsFund.type;
@@ -768,15 +787,8 @@ export default function PensionPage() {
             </Card>
           </div>
 
-          {funds.length === 0 ? (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <PiggyBank className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
-                <h3 className="font-semibold text-lg mb-1">אין קרנות עדיין</h3>
-                <p className="text-muted-foreground text-sm">הוסף קרנות בלשוניות השונות</p>
-              </CardContent>
-            </Card>
-          ) : (
+          {/* Main funds summary table (excluding child_savings) */}
+          {nonChildFunds.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">סיכום קרנות</CardTitle>
@@ -785,20 +797,20 @@ export default function PensionPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>שם הקרן</TableHead>
-                      <TableHead>סוג</TableHead>
-                      <TableHead>יתרה נוכחית</TableHead>
+                      <TableHead className="text-right">שם הקרן</TableHead>
+                      <TableHead className="text-right">סוג</TableHead>
+                      <TableHead className="text-right">יתרה נוכחית</TableHead>
                       <TableHead className="text-center">נגישות</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {funds.map(fund => {
+                    {nonChildFunds.map(fund => {
                       const typeLabel = TAB_CONFIG.find(t => t.type === fund.type)?.label || fund.type;
                       return (
                         <TableRow key={fund.id}>
-                          <TableCell className="font-medium">{fund.name}</TableCell>
-                          <TableCell className="text-sm text-muted-foreground">{typeLabel}</TableCell>
-                          <TableCell>{fmt(getLatestBalance(fund.id))}</TableCell>
+                          <TableCell className="text-right font-medium">{fund.name}</TableCell>
+                          <TableCell className="text-right text-sm text-muted-foreground">{typeLabel}</TableCell>
+                          <TableCell className="text-right">{fmt(getLatestBalance(fund.id))}</TableCell>
                           <TableCell className="text-center">
                             <div className="flex items-center justify-center gap-2">
                               {fund.accessible ? <Unlock className="h-4 w-4 text-green-600" /> : <Lock className="h-4 w-4 text-muted-foreground" />}
@@ -810,6 +822,47 @@ export default function PensionPage() {
                     })}
                   </TableBody>
                 </Table>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Child savings separate section */}
+          {childFunds.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Baby className="h-5 w-5" /> חיסכון לכל ילד
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {childFunds.map(fund => (
+                    <Card key={fund.id} className="bg-muted/30 border">
+                      <CardContent className="p-4 text-center space-y-2">
+                        <p className="text-sm font-medium text-muted-foreground">{fund.name}</p>
+                        <p className="text-2xl font-bold">{fmt(getLatestBalance(fund.id))}</p>
+                        <div className="flex items-center justify-center gap-2 text-xs">
+                          {fund.accessible ? (
+                            <span className="flex items-center gap-1 text-green-600"><Unlock className="h-3 w-3" /> נגיש</span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-muted-foreground"><Lock className="h-3 w-3" /> נעול</span>
+                          )}
+                          <Switch className="scale-75" checked={fund.accessible} onCheckedChange={(v) => toggleAccessible.mutate({ id: fund.id, accessible: v })} />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {funds.length === 0 && (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <PiggyBank className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
+                <h3 className="font-semibold text-lg mb-1">אין קרנות עדיין</h3>
+                <p className="text-muted-foreground text-sm">הוסף קרנות בלשוניות השונות</p>
               </CardContent>
             </Card>
           )}
@@ -827,6 +880,18 @@ export default function PensionPage() {
               <Label>שם הקרן</Label>
               <Input value={fundName} onChange={(e) => setFundName(e.target.value)} placeholder="לדוגמה: מגדל" />
             </div>
+            {fundDialogType === "self_trading" && (
+              <div className="space-y-2">
+                <Label>סוג תיק</Label>
+                <Select value={selfTradingSubtype} onValueChange={(v) => setSelfTradingSubtype(v as "stocks" | "dividend")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="stocks">תיק מניות</SelectItem>
+                    <SelectItem value="dividend">תיק דיבידנד</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFundDialogOpen(false)}>ביטול</Button>
