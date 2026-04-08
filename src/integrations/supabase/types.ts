@@ -191,7 +191,10 @@ export type Database = {
           fund_id: string
           fund_name: string
           id: string
+          management_fees: number
           month: number
+          monthly_growth: number
+          monthly_return: number
           updated_at: string
           user_id: string
           year: number
@@ -206,7 +209,10 @@ export type Database = {
           fund_id: string
           fund_name?: string
           id?: string
+          management_fees?: number
           month: number
+          monthly_growth?: number
+          monthly_return?: number
           updated_at?: string
           user_id: string
           year: number
@@ -221,7 +227,10 @@ export type Database = {
           fund_id?: string
           fund_name?: string
           id?: string
+          management_fees?: number
           month?: number
+          monthly_growth?: number
+          monthly_return?: number
           updated_at?: string
           user_id?: string
           year?: number
@@ -239,7 +248,9 @@ export type Database = {
       pension_funds: {
         Row: {
           accessible: boolean
+          accumulation_fee_pct: number
           created_at: string
+          deposit_fee_pct: number
           employer: string
           fund_name: string
           id: string
@@ -249,7 +260,9 @@ export type Database = {
         }
         Insert: {
           accessible?: boolean
+          accumulation_fee_pct?: number
           created_at?: string
+          deposit_fee_pct?: number
           employer?: string
           fund_name?: string
           id?: string
@@ -259,7 +272,9 @@ export type Database = {
         }
         Update: {
           accessible?: boolean
+          accumulation_fee_pct?: number
           created_at?: string
+          deposit_fee_pct?: number
           employer?: string
           fund_name?: string
           id?: string

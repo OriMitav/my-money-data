@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, PiggyBank, Lock, Unlock } from "lucide-react";
+import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2 } from "lucide-react";
 import { toast } from "sonner";
 
 const MONTHS = [
@@ -26,6 +26,8 @@ interface PensionFund {
   employer: string;
   fund_name: string;
   accessible: boolean;
+  deposit_fee_pct: number;
+  accumulation_fee_pct: number;
 }
 
 interface PensionEntry {
@@ -39,17 +41,13 @@ interface PensionEntry {
   employer_contribution: number;
   compensation: number;
   closing_balance: number;
-}
-
-interface PensionSettings {
-  id: string;
-  default_employer: string;
-  default_fund_name: string;
-  deposit_fee_pct: number;
-  accumulation_fee_pct: number;
+  management_fees: number;
+  monthly_growth: number;
+  monthly_return: number;
 }
 
 const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
+const pct = (n: number) => (n * 100).toFixed(2) + "%";
 
 export default function PensionPage() {
   const { user } = useAuth();
@@ -57,13 +55,17 @@ export default function PensionPage() {
   const [mainTab, setMainTab] = useState("summary");
   const [selectedFund, setSelectedFund] = useState<string | null>(null);
   const [fundDialogOpen, setFundDialogOpen] = useState(false);
-  const [fundForm, setFundForm] = useState({ name: "", employer: "", fund_name: "" });
+  const [fundName, setFundName] = useState("");
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [settingsFundId, setSettingsFundId] = useState<string | null>(null);
+  const [settingsForm, setSettingsForm] = useState({ employer: "", fund_name: "", deposit_fee_pct: 0, accumulation_fee_pct: 0 });
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
   const [editEntryId, setEditEntryId] = useState<string | null>(null);
   const [entryForm, setEntryForm] = useState({
     year: new Date().getFullYear(), month: new Date().getMonth() + 1,
     employer: "", fund_name: "",
     employee: 0, employerC: 0, compensation: 0, closing: 0,
+    management_fees: 0,
   });
 
   const { data: funds = [] } = useQuery({
@@ -84,29 +86,17 @@ export default function PensionPage() {
     },
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ["pension_settings"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("pension_settings").select("*").maybeSingle();
-      if (error) throw error;
-      return data as PensionSettings | null;
-    },
-  });
-
   const createFund = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.from("pension_funds").insert({
-        name: fundForm.name,
-        employer: fundForm.employer,
-        fund_name: fundForm.fund_name,
-        user_id: user!.id,
+        name: fundName, user_id: user!.id,
       });
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pension_funds"] });
       setFundDialogOpen(false);
-      setFundForm({ name: "", employer: "", fund_name: "" });
+      setFundName("");
       toast.success("קרן פנסיה נוספה");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -134,9 +124,51 @@ export default function PensionPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const saveFundSettings = useMutation({
+    mutationFn: async () => {
+      if (!settingsFundId) return;
+      const { error } = await supabase.from("pension_funds").update({
+        employer: settingsForm.employer,
+        fund_name: settingsForm.fund_name,
+        deposit_fee_pct: settingsForm.deposit_fee_pct,
+        accumulation_fee_pct: settingsForm.accumulation_fee_pct,
+      }).eq("id", settingsFundId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pension_funds"] });
+      setSettingsDialogOpen(false);
+      toast.success("הגדרות הקרן נשמרו");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const upsertEntry = useMutation({
     mutationFn: async () => {
       if (!selectedFund) return;
+      const fund = funds.find(f => f.id === selectedFund);
+      const fundEntries = getEntriesSorted(selectedFund);
+
+      // Calculate management fees
+      const prevEntry = fundEntries.find((e, i) => {
+        const next = fundEntries[i + 1];
+        if (editEntryId) return next?.id === editEntryId || (!next && e.id !== editEntryId);
+        return i === fundEntries.length - 1;
+      });
+      const prevBalance = editEntryId
+        ? (fundEntries.findIndex(e => e.id === editEntryId) > 0
+          ? Number(fundEntries[fundEntries.findIndex(e => e.id === editEntryId) - 1].closing_balance)
+          : 0)
+        : (fundEntries.length > 0 ? Number(fundEntries[fundEntries.length - 1].closing_balance) : 0);
+
+      const totalDeposit = entryForm.employee + entryForm.employerC + entryForm.compensation;
+      const depositFee = (fund?.deposit_fee_pct || 0) / 100 * totalDeposit;
+      const accumFee = (fund?.accumulation_fee_pct || 0) / 100 / 12 * prevBalance;
+      const calcFees = entryForm.management_fees || (depositFee + accumFee);
+      const monthlyGrowth = entryForm.closing - prevBalance;
+      const profit = entryForm.closing - (prevBalance + totalDeposit - calcFees);
+      const monthlyReturn = prevBalance > 0 ? profit / prevBalance : 0;
+
       const payload = {
         user_id: user!.id,
         fund_id: selectedFund,
@@ -148,6 +180,9 @@ export default function PensionPage() {
         employer_contribution: entryForm.employerC,
         compensation: entryForm.compensation,
         closing_balance: entryForm.closing,
+        management_fees: calcFees,
+        monthly_growth: monthlyGrowth,
+        monthly_return: monthlyReturn,
       };
       if (editEntryId) {
         const { error } = await supabase.from("pension_entries").update(payload).eq("id", editEntryId);
@@ -178,14 +213,27 @@ export default function PensionPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const openFundSettings = (fund: PensionFund) => {
+    setSettingsFundId(fund.id);
+    setSettingsForm({
+      employer: fund.employer,
+      fund_name: fund.fund_name,
+      deposit_fee_pct: Number(fund.deposit_fee_pct),
+      accumulation_fee_pct: Number(fund.accumulation_fee_pct),
+    });
+    setSettingsDialogOpen(true);
+  };
+
   const openNewEntry = (fundId: string) => {
+    const fund = funds.find(f => f.id === fundId);
     setSelectedFund(fundId);
     setEditEntryId(null);
     setEntryForm({
       year: new Date().getFullYear(), month: new Date().getMonth() + 1,
-      employer: settings?.default_employer || "",
-      fund_name: settings?.default_fund_name || "",
+      employer: fund?.employer || "",
+      fund_name: fund?.fund_name || "",
       employee: 0, employerC: 0, compensation: 0, closing: 0,
+      management_fees: 0,
     });
     setEntryDialogOpen(true);
   };
@@ -200,30 +248,57 @@ export default function PensionPage() {
       employerC: Number(entry.employer_contribution),
       compensation: Number(entry.compensation),
       closing: Number(entry.closing_balance),
+      management_fees: Number(entry.management_fees),
     });
     setEntryDialogOpen(true);
   };
 
-  // Calculations helpers
   const getEntriesSorted = (fundId: string) =>
     entries.filter(e => e.fund_id === fundId).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
 
-  const calcManagementFees = (entry: PensionEntry, prevBalance: number) => {
-    const depositPct = settings?.deposit_fee_pct || 0;
-    const accumPct = settings?.accumulation_fee_pct || 0;
-    const totalDeposit = Number(entry.employee_contribution) + Number(entry.employer_contribution) + Number(entry.compensation);
-    return (depositPct / 100) * totalDeposit + (accumPct / 100 / 12) * prevBalance;
-  };
-
-  const calcMonthlyProfit = (entry: PensionEntry, prevBalance: number, fees: number) => {
-    const totalDeposit = Number(entry.employee_contribution) + Number(entry.employer_contribution) + Number(entry.compensation);
-    return Number(entry.closing_balance) - (prevBalance + totalDeposit - fees);
-  };
-
-  // Summary calculations
   const getLatestBalance = (fundId: string) => {
     const sorted = getEntriesSorted(fundId);
     return sorted.length > 0 ? Number(sorted[sorted.length - 1].closing_balance) : 0;
+  };
+
+  // Return summaries for a fund
+  const getReturnSummary = (fundId: string) => {
+    const sorted = getEntriesSorted(fundId);
+    if (sorted.length < 2) return { y1: null, y3: null, y5: null };
+
+    const now = sorted[sorted.length - 1];
+    const nowDate = new Date(now.year, now.month - 1);
+
+    const findEntryAt = (monthsBack: number) => {
+      const target = new Date(nowDate);
+      target.setMonth(target.getMonth() - monthsBack);
+      return sorted.find(e => e.year === target.getFullYear() && e.month === target.getMonth() + 1);
+    };
+
+    const calcReturn = (monthsBack: number) => {
+      const start = findEntryAt(monthsBack);
+      if (!start) return null;
+      const startBal = Number(start.closing_balance);
+      if (startBal <= 0) return null;
+      const endBal = Number(now.closing_balance);
+      // Sum deposits between start and end
+      const relevantEntries = sorted.filter(e => {
+        const eDate = new Date(e.year, e.month - 1);
+        const sDate = new Date(start.year, start.month - 1);
+        return eDate > sDate && eDate <= nowDate;
+      });
+      const totalDeposits = relevantEntries.reduce((s, e) =>
+        s + Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation), 0);
+      const totalFees = relevantEntries.reduce((s, e) => s + Number(e.management_fees), 0);
+      const profit = endBal - startBal - totalDeposits + totalFees;
+      return profit / startBal;
+    };
+
+    return {
+      y1: calcReturn(12),
+      y3: calcReturn(36),
+      y5: calcReturn(60),
+    };
   };
 
   const totalAccessible = funds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0);
@@ -341,12 +416,16 @@ export default function PensionPage() {
 
               {funds.map(fund => {
                 const fundEntries = getEntriesSorted(fund.id);
+                const returnSummary = getReturnSummary(fund.id);
 
                 return (
                   <TabsContent key={fund.id} value={fund.id} className="space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
                       <h2 className="text-lg font-semibold">{fund.name}</h2>
                       <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => openFundSettings(fund)}>
+                          <Settings2 className="ml-1 h-4 w-4" /> הגדרות קרן
+                        </Button>
                         <Button size="sm" onClick={() => openNewEntry(fund.id)}>
                           <Plus className="ml-1 h-4 w-4" /> הוסף חודש
                         </Button>
@@ -354,6 +433,28 @@ export default function PensionPage() {
                           <Trash2 className="ml-1 h-4 w-4" /> מחק קרן
                         </Button>
                       </div>
+                    </div>
+
+                    {/* Return Summary Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {[
+                        { label: "תשואה שנה אחרונה", val: returnSummary.y1 },
+                        { label: "תשואה 3 שנים", val: returnSummary.y3 },
+                        { label: "תשואה 5 שנים", val: returnSummary.y5 },
+                      ].map(({ label, val }) => (
+                        <Card key={label}>
+                          <CardContent className="p-4 text-center">
+                            <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                            {val !== null ? (
+                              <p className={`text-lg font-bold ${val >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                {pct(val)}
+                              </p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">אין מספיק נתונים</p>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
                     </div>
 
                     <Card>
@@ -371,13 +472,14 @@ export default function PensionPage() {
                               <TableHead>דמי ניהול</TableHead>
                               <TableHead>רווח חודשי</TableHead>
                               <TableHead>יתרת סגירה</TableHead>
-                              <TableHead className="w-16">פעולות</TableHead>
+                              <TableHead>גידול חודשי</TableHead>
+                              <TableHead>תשואה חודשית</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {fundEntries.length === 0 ? (
                               <TableRow>
-                                <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                                <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                                   אין נתונים עדיין. לחץ "הוסף חודש" כדי להתחיל.
                                 </TableCell>
                               </TableRow>
@@ -385,8 +487,10 @@ export default function PensionPage() {
                               fundEntries.map((entry, idx) => {
                                 const prevBalance = idx === 0 ? 0 : Number(fundEntries[idx - 1].closing_balance);
                                 const totalDeposit = Number(entry.employee_contribution) + Number(entry.employer_contribution) + Number(entry.compensation);
-                                const fees = calcManagementFees(entry, prevBalance);
-                                const profit = calcMonthlyProfit(entry, prevBalance, fees);
+                                const fees = Number(entry.management_fees);
+                                const profit = Number(entry.closing_balance) - (prevBalance + totalDeposit - fees);
+                                const monthlyReturn = Number(entry.monthly_return);
+                                const monthlyGrowth = Number(entry.monthly_growth) || (Number(entry.closing_balance) - prevBalance);
 
                                 return (
                                   <TableRow key={entry.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditEntry(entry)}>
@@ -404,10 +508,11 @@ export default function PensionPage() {
                                       {fmt(profit)}
                                     </TableCell>
                                     <TableCell className="text-sm font-bold">{fmt(Number(entry.closing_balance))}</TableCell>
-                                    <TableCell>
-                                      <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); deleteEntry.mutate(entry.id); }}>
-                                        <Trash2 className="h-4 w-4 text-destructive" />
-                                      </Button>
+                                    <TableCell className={`text-sm ${monthlyGrowth >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                      {fmt(monthlyGrowth)}
+                                    </TableCell>
+                                    <TableCell className={`text-sm font-medium ${monthlyReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
+                                      {pct(monthlyReturn)}
                                     </TableCell>
                                   </TableRow>
                                 );
@@ -425,27 +530,52 @@ export default function PensionPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Add Fund Dialog */}
+      {/* Add Fund Dialog - only name */}
       <Dialog open={fundDialogOpen} onOpenChange={setFundDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader><DialogTitle>הוסף קרן פנסיה</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>שם הקרן</Label>
-              <Input value={fundForm.name} onChange={(e) => setFundForm({ ...fundForm, name: e.target.value })} placeholder="לדוגמה: מגדל" />
-            </div>
-            <div className="space-y-2">
-              <Label>מעסיק</Label>
-              <Input value={fundForm.employer} onChange={(e) => setFundForm({ ...fundForm, employer: e.target.value })} placeholder="שם המעסיק" />
-            </div>
-            <div className="space-y-2">
-              <Label>שם קרן הפנסיה</Label>
-              <Input value={fundForm.fund_name} onChange={(e) => setFundForm({ ...fundForm, fund_name: e.target.value })} placeholder="לדוגמה: מגדל מקפת" />
+              <Input value={fundName} onChange={(e) => setFundName(e.target.value)} placeholder="לדוגמה: מגדל" />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setFundDialogOpen(false)}>ביטול</Button>
-            <Button onClick={() => { if (fundForm.name.trim()) createFund.mutate(); }} disabled={createFund.isPending}>צור</Button>
+            <Button onClick={() => { if (fundName.trim()) createFund.mutate(); }} disabled={createFund.isPending}>צור</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Fund Settings Dialog */}
+      <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>הגדרות קרן</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>מעסיק</Label>
+                <Input value={settingsForm.employer} onChange={(e) => setSettingsForm({ ...settingsForm, employer: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label>שם קרן הפנסיה</Label>
+                <Input value={settingsForm.fund_name} onChange={(e) => setSettingsForm({ ...settingsForm, fund_name: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>דמי ניהול מהפקדה (%)</Label>
+                <Input type="number" step="0.01" value={settingsForm.deposit_fee_pct} onChange={(e) => setSettingsForm({ ...settingsForm, deposit_fee_pct: Number(e.target.value) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>דמי ניהול מצבירה (%)</Label>
+                <Input type="number" step="0.01" value={settingsForm.accumulation_fee_pct} onChange={(e) => setSettingsForm({ ...settingsForm, accumulation_fee_pct: Number(e.target.value) })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSettingsDialogOpen(false)}>ביטול</Button>
+            <Button onClick={() => saveFundSettings.mutate()} disabled={saveFundSettings.isPending}>שמור</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -496,9 +626,15 @@ export default function PensionPage() {
                 <Input type="number" value={entryForm.compensation} onChange={(e) => setEntryForm({ ...entryForm, compensation: Number(e.target.value) })} />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>יתרת סגירה</Label>
-              <Input type="number" value={entryForm.closing} onChange={(e) => setEntryForm({ ...entryForm, closing: Number(e.target.value) })} />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>דמי ניהול וביטוחים</Label>
+                <Input type="number" step="0.01" value={entryForm.management_fees} onChange={(e) => setEntryForm({ ...entryForm, management_fees: Number(e.target.value) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>יתרת סגירה</Label>
+                <Input type="number" value={entryForm.closing} onChange={(e) => setEntryForm({ ...entryForm, closing: Number(e.target.value) })} />
+              </div>
             </div>
           </div>
           <DialogFooter>
