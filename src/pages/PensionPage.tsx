@@ -136,6 +136,8 @@ export default function PensionPage() {
     parent_matching: false, state_deposit_amount: 0,
     birth_date: "", retirement_age: 67, end_savings_age: 18,
   });
+  const [showAllInvestment, setShowAllInvestment] = useState(false);
+  const [showAllGrowth, setShowAllGrowth] = useState(false);
   const [checkingBalance, setCheckingBalance] = useState(0);
   const [editingChecking, setEditingChecking] = useState(false);
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
