@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye, Wallet, RefreshCw, ChevronDown, CreditCard, Edit } from "lucide-react";
+import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye, Wallet, RefreshCw, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, Legend, ResponsiveContainer } from "recharts";
 
@@ -56,27 +56,6 @@ interface PensionEntry {
   management_fees: number;
   monthly_growth: number;
   monthly_return: number;
-}
-
-interface Debt {
-  id: string;
-  user_id: string;
-  name: string;
-  total_amount: number;
-  debtor_name: string;
-  is_zero_interest: boolean;
-  fixed_payment_amount: number;
-}
-
-interface DebtEntry {
-  id: string;
-  debt_id: string;
-  year: number;
-  month: number;
-  interest_paid: number;
-  principal_paid: number;
-  total_paid: number;
-  remaining_balance: number;
 }
 
 const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
@@ -396,83 +375,6 @@ export default function PensionPage() {
       setDebtDialogOpen(false);
       setEditDebtId(null);
       toast.success("חוב נוסף");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const updateDebt = useMutation({
-    mutationFn: async () => {
-      if (!editDebtId) return;
-      const { error } = await supabase.from("debts").update({
-        name: debtForm.name,
-        total_amount: debtForm.total_amount,
-        debtor_name: debtForm.debtor_name,
-        is_zero_interest: debtForm.is_zero_interest,
-        fixed_payment_amount: debtForm.fixed_payment_amount,
-      } as any).eq("id", editDebtId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["debts"] });
-      setDebtDialogOpen(false);
-      setEditDebtId(null);
-      toast.success("חוב עודכן");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const deleteDebt = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("debts").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["debts"] });
-      qc.invalidateQueries({ queryKey: ["debt_entries"] });
-      toast.success("חוב נמחק");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const upsertDebtEntry = useMutation({
-    mutationFn: async () => {
-      if (!selectedDebt) return;
-      const principalPaid = debtEntryForm.total_paid - debtEntryForm.interest_paid;
-      const payload: any = {
-        user_id: user!.id,
-        debt_id: selectedDebt,
-        year: debtEntryForm.year,
-        month: debtEntryForm.month,
-        interest_paid: debtEntryForm.interest_paid,
-        principal_paid: principalPaid,
-        total_paid: debtEntryForm.total_paid,
-        remaining_balance: debtEntryForm.remaining_balance,
-      };
-      if (editDebtEntryId) {
-        const { error } = await supabase.from("debt_entries").update(payload).eq("id", editDebtEntryId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("debt_entries").insert(payload);
-        if (error) throw error;
-      }
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["debt_entries"] });
-      setDebtEntryDialogOpen(false);
-      setEditDebtEntryId(null);
-      toast.success("נשמר");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const deleteDebtEntry = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("debt_entries").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["debt_entries"] });
-      toast.success("נמחק");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -1334,7 +1236,6 @@ export default function PensionPage() {
                 {t.icon} <span className="hidden sm:inline">{t.label}</span><span className="sm:hidden">{t.label.split(" ")[0]}</span>
               </TabsTrigger>
             ))}
-            <TabsTrigger value="debts" className="flex items-center gap-1 text-xs sm:text-sm">
               <CreditCard className="h-4 w-4" /> <span className="hidden sm:inline">חובות</span><span className="sm:hidden">חובות</span>
             </TabsTrigger>
           </TabsList>
@@ -1574,7 +1475,6 @@ export default function PensionPage() {
         </TabsContent>
 
         {TAB_CONFIG.map(t => renderTypeSection(t.type))}
-        {renderDebtsTab()}
       </Tabs>
 
       {/* Create Fund Dialog */}
@@ -1631,84 +1531,8 @@ export default function PensionPage() {
       </Dialog>
 
       {/* Create/Edit Debt Dialog */}
-      <Dialog open={debtDialogOpen} onOpenChange={setDebtDialogOpen}>
-        <DialogContent className="sm:max-w-md max-w-[95vw]">
-          <DialogHeader><DialogTitle>{editDebtId ? "עריכת חוב" : "הוסף חוב"}</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>שם החוב</Label>
-              <Input value={debtForm.name} onChange={(e) => setDebtForm({ ...debtForm, name: e.target.value })} />
-            </div>
-            <div className="space-y-2">
-              <Label>סכום החוב</Label>
-              <Input type="number" value={debtForm.total_amount} onChange={(e) => setDebtForm({ ...debtForm, total_amount: Number(e.target.value) })} />
-            </div>
-            <div className="space-y-2">
-              <Label>עבור מי</Label>
-              <Input value={debtForm.debtor_name} onChange={(e) => setDebtForm({ ...debtForm, debtor_name: e.target.value })} />
-            </div>
-            <div className="flex items-center gap-3">
-              <Switch checked={debtForm.is_zero_interest} onCheckedChange={(v) => setDebtForm({ ...debtForm, is_zero_interest: v })} />
-              <Label>0% ריבית - תשלום קבוע</Label>
-            </div>
-            {debtForm.is_zero_interest && (
-              <div className="space-y-2">
-                <Label>סכום תשלום קבוע</Label>
-                <Input type="number" value={debtForm.fixed_payment_amount} onChange={(e) => setDebtForm({ ...debtForm, fixed_payment_amount: Number(e.target.value) })} />
-              </div>
-            )}
-          </div>
-          <DialogFooter className="flex-row gap-2">
-            <Button variant="outline" onClick={() => setDebtDialogOpen(false)}>ביטול</Button>
-            <Button onClick={() => editDebtId ? updateDebt.mutate() : createDebt.mutate()} disabled={createDebt.isPending || updateDebt.isPending}>
-              {editDebtId ? "עדכן" : "צור"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Add/Edit Debt Entry Dialog */}
-      <Dialog open={debtEntryDialogOpen} onOpenChange={setDebtEntryDialogOpen}>
-        <DialogContent className="sm:max-w-md max-w-[95vw]">
-          <DialogHeader><DialogTitle>{editDebtEntryId ? "עריכת תשלום" : "הוסף תשלום"}</DialogTitle></DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>שנה</Label>
-                <Input type="number" value={debtEntryForm.year} onChange={(e) => setDebtEntryForm({ ...debtEntryForm, year: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label>חודש</Label>
-                <Select value={String(debtEntryForm.month)} onValueChange={(v) => setDebtEntryForm({ ...debtEntryForm, month: Number(v) })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {MONTHS.map((m, i) => (
-                      <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>שולם ריבית</Label>
-              <Input type="number" step="0.01" value={debtEntryForm.interest_paid} onChange={(e) => setDebtEntryForm({ ...debtEntryForm, interest_paid: Number(e.target.value) })} />
-            </div>
-            <div className="space-y-2">
-              <Label>סה״כ שולם</Label>
-              <Input type="number" step="0.01" value={debtEntryForm.total_paid} onChange={(e) => setDebtEntryForm({ ...debtEntryForm, total_paid: Number(e.target.value) })} />
-            </div>
-            <div className="space-y-2">
-              <Label>יתרה</Label>
-              <Input type="number" step="0.01" value={debtEntryForm.remaining_balance} onChange={(e) => setDebtEntryForm({ ...debtEntryForm, remaining_balance: Number(e.target.value) })} />
-            </div>
-            <p className="text-xs text-muted-foreground">שולם מהקרן: {fmt(debtEntryForm.total_paid - debtEntryForm.interest_paid)}</p>
-          </div>
-          <DialogFooter className="flex-row gap-2">
-            <Button variant="outline" onClick={() => setDebtEntryDialogOpen(false)}>ביטול</Button>
-            <Button onClick={() => upsertDebtEntry.mutate()} disabled={upsertDebtEntry.isPending}>שמור</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
