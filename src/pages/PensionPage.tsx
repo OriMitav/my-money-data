@@ -562,8 +562,10 @@ export default function PensionPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  fundEntries.map((entry, idx) => {
-                    const prevBalance = idx === 0 ? 0 : Number(fundEntries[idx - 1].closing_balance);
+                  displayEntries.map((entry) => {
+                    // Find original index in chronological order for prev balance
+                    const chronIdx = fundEntries.indexOf(entry);
+                    const prevBalance = chronIdx === 0 ? 0 : Number(fundEntries[chronIdx - 1].closing_balance);
                     let totalDeposit: number;
                     if (fund.type === "child_savings") {
                       totalDeposit = Number(entry.employee_contribution) + Number(entry.employer_contribution);
