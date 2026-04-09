@@ -1007,6 +1007,29 @@ export default function PensionPage() {
 
         {/* Summary Tab */}
         <TabsContent value="summary" className="space-y-4 sm:space-y-6">
+          {/* Checking account balance */}
+          <Card className="border-dashed">
+            <CardContent className="p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">יתרת עו״ש</span>
+              </div>
+              {editingChecking ? (
+                <div className="flex items-center gap-2">
+                  <Input type="number" className="w-32 h-8 text-sm" value={checkingBalance}
+                    onChange={(e) => setCheckingBalance(Number(e.target.value))} />
+                  <Button size="sm" className="h-8" onClick={() => saveCheckingBalance.mutate(checkingBalance)}>שמור</Button>
+                  <Button size="sm" variant="outline" className="h-8" onClick={() => setEditingChecking(false)}>ביטול</Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 cursor-pointer" onClick={() => setEditingChecking(true)}>
+                  <span className="text-lg font-bold">{fmt(checkingBalance)}</span>
+                  <span className="text-xs text-muted-foreground">(לחץ לעריכה)</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <Card>
               <CardHeader className="pb-2 p-3 sm:p-6 sm:pb-2">
