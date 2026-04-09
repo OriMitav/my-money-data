@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye, Wallet } from "lucide-react";
+import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye, Wallet, RefreshCw, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
@@ -70,10 +70,12 @@ const TAB_CONFIG: { type: FundType; label: string; icon: React.ReactNode; create
 // Forecast chart sub-component
 function ForecastChart({ fund, buildForecastData }: {
   fund: PensionFund;
-  buildForecastData: (fund: PensionFund, scenario: "y1" | "y3" | "y5") => { label: string; balance: number; type: string }[];
+  buildForecastData: (fund: PensionFund, scenario: "y1" | "y3" | "y5", noDeposits?: boolean) => { label: string; historyBalance: number | null; forecastBalance: number | null }[];
 }) {
   const [scenario, setScenario] = useState<"y1" | "y3" | "y5">("y1");
-  const data = useMemo(() => buildForecastData(fund, scenario), [fund, scenario, buildForecastData]);
+  const [noDeposits, setNoDeposits] = useState(false);
+  const showNoDeposits = fund.type === "pension";
+  const data = useMemo(() => buildForecastData(fund, scenario, showNoDeposits ? noDeposits : false), [fund, scenario, noDeposits, showNoDeposits, buildForecastData]);
 
   if (data.length < 2) return null;
 
@@ -84,7 +86,7 @@ function ForecastChart({ fund, buildForecastData }: {
       <CardHeader className="p-3 sm:p-4 pb-1">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <CardTitle className="text-sm sm:text-base">📊 גרף גידול ותחזית</CardTitle>
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-wrap">
             {(["y1", "y3", "y5"] as const).map(s => (
               <Button key={s} size="sm" variant={scenario === s ? "default" : "outline"}
                 className="text-[10px] sm:text-xs px-2 py-1 h-7"
@@ -94,6 +96,12 @@ function ForecastChart({ fund, buildForecastData }: {
             ))}
           </div>
         </div>
+        {showNoDeposits && (
+          <div className="flex items-center gap-2 mt-2">
+            <Switch checked={noDeposits} onCheckedChange={setNoDeposits} />
+            <Label className="text-xs">ללא הפקדות עתידיות</Label>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="p-2 sm:p-4 pt-0">
         <ResponsiveContainer width="100%" height={250}>
@@ -102,7 +110,9 @@ function ForecastChart({ fund, buildForecastData }: {
             <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(data.length / 8))} />
             <YAxis tickFormatter={(v: number) => `₪${(v / 1000).toFixed(0)}K`} tick={{ fontSize: 10 }} />
             <Tooltip formatter={(v: number) => fmt(v)} />
-            <Line type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="יתרה" />
+            <Legend />
+            <Line type="monotone" dataKey="historyBalance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="היסטוריה" connectNulls={false} />
+            <Line type="monotone" dataKey="forecastBalance" stroke="#22c55e" strokeWidth={2} strokeDasharray="5 5" dot={false} name="תחזית" connectNulls={false} />
           </LineChart>
         </ResponsiveContainer>
       </CardContent>
@@ -476,26 +486,22 @@ export default function PensionPage() {
   const currentFundType = selectedFund ? funds.find(f => f.id === selectedFund)?.type : undefined;
   const settingsFund = settingsFundId ? funds.find(f => f.id === settingsFundId) : null;
 
-  // Build forecast chart data for pension/child_savings/hishtalmut
-  const buildForecastData = (fund: PensionFund, yieldScenario: "y1" | "y3" | "y5") => {
+  // Build forecast chart data with separate history/forecast series
+  const buildForecastData = (fund: PensionFund, yieldScenario: "y1" | "y3" | "y5", noDeposits = false): { label: string; historyBalance: number | null; forecastBalance: number | null }[] => {
     const sorted = getEntriesSorted(fund.id);
     if (sorted.length < 2) return [];
 
-    // Historical data points (monthly closing balance)
-    const histData = sorted.map(e => ({
+    const histData: { label: string; historyBalance: number | null; forecastBalance: number | null }[] = sorted.map(e => ({
       label: `${MONTHS[e.month - 1]} ${e.year}`,
-      balance: Number(e.closing_balance),
-      type: "history" as const,
+      historyBalance: Number(e.closing_balance),
+      forecastBalance: null,
     }));
 
-    // Calculate average monthly deposit from last 12 months
     const last12 = sorted.slice(-12);
-    const avgDeposit = last12.reduce((s, e) => {
-      const dep = Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation);
-      return s + dep;
+    const avgDeposit = noDeposits ? 0 : last12.reduce((s, e) => {
+      return s + Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation);
     }, 0) / last12.length;
 
-    // Get compound annual yield and normalize to monthly
     const rs = getReturnSummary(fund.id);
     let annualYield = 0;
     if (yieldScenario === "y1" && rs.y1 != null) annualYield = rs.y1;
@@ -503,8 +509,7 @@ export default function PensionPage() {
     else if (yieldScenario === "y5" && rs.y5 != null) annualYield = Math.pow(1 + rs.y5, 1 / 5) - 1;
     const monthlyYield = Math.pow(1 + annualYield, 1 / 12) - 1;
 
-    // Determine forecast months
-    let forecastMonths = 60; // default 5 years for hishtalmut
+    let forecastMonths = 60;
     if (fund.type === "pension" && fund.birth_date) {
       const birthDate = new Date(fund.birth_date);
       const retireAge = fund.retirement_age || 67;
@@ -520,18 +525,15 @@ export default function PensionPage() {
       const lastDate = new Date(lastEntry.year, lastEntry.month - 1);
       forecastMonths = Math.max(0, Math.round((endDate.getTime() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
     }
-
-    // Cap forecast to avoid too many data points
     forecastMonths = Math.min(forecastMonths, 600);
 
-    // Build forecast (show every 12th month for long periods, every month for short)
     const step = forecastMonths > 120 ? 12 : forecastMonths > 60 ? 6 : 1;
     let balance = sorted.length > 0 ? Number(sorted[sorted.length - 1].closing_balance) : 0;
     const lastEntry = sorted[sorted.length - 1];
     let curMonth = lastEntry.month;
     let curYear = lastEntry.year;
 
-    const forecastData: { label: string; balance: number; type: "forecast" }[] = [];
+    const forecastData: { label: string; historyBalance: null; forecastBalance: number }[] = [];
     const depositFee = (fund.deposit_fee_pct || 0) / 100;
     const accumFee = (fund.accumulation_fee_pct || 0) / 100 / 12;
 
@@ -543,17 +545,104 @@ export default function PensionPage() {
       if (i % step === 0 || i === forecastMonths) {
         forecastData.push({
           label: `${MONTHS[curMonth - 1]} ${curYear}`,
-          balance: Math.round(balance),
-          type: "forecast",
+          historyBalance: null,
+          forecastBalance: Math.round(balance),
         });
       }
     }
 
-    // Thin out historical data for display (show every Nth for long histories)
     const histStep = histData.length > 60 ? 12 : histData.length > 24 ? 3 : 1;
     const thinnedHist = histData.filter((_, i) => i % histStep === 0 || i === histData.length - 1);
 
+    // Bridge: last history point also gets forecast value for line connection
+    if (thinnedHist.length > 0 && forecastData.length > 0) {
+      thinnedHist[thinnedHist.length - 1].forecastBalance = thinnedHist[thinnedHist.length - 1].historyBalance;
+    }
+
     return [...thinnedHist, ...forecastData];
+  };
+
+  // Build projection table for pension funds
+  const buildPensionProjection = (fund: PensionFund) => {
+    const sorted = getEntriesSorted(fund.id);
+    if (sorted.length < 2 || !fund.birth_date) return null;
+
+    const rs = getReturnSummary(fund.id);
+    const last12 = sorted.slice(-12);
+    const avgDeposit = last12.reduce((s, e) => s + Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation), 0) / last12.length;
+
+    const birthDate = new Date(fund.birth_date);
+    const retireAge = fund.retirement_age || 67;
+    const retireDate = new Date(birthDate.getFullYear() + retireAge, birthDate.getMonth());
+    const lastEntry = sorted[sorted.length - 1];
+    const lastDate = new Date(lastEntry.year, lastEntry.month - 1);
+    const forecastMonths = Math.max(0, Math.round((retireDate.getTime() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
+
+    const depositFee = (fund.deposit_fee_pct || 0) / 100;
+    const accumFee = (fund.accumulation_fee_pct || 0) / 100 / 12;
+    const currentBalance = Number(lastEntry.closing_balance);
+
+    const scenarios = [
+      { key: "y1", label: "תשואה שנה", yieldVal: rs.y1 },
+      { key: "y3", label: "תשואה 3 שנים", yieldVal: rs.y3 != null ? Math.pow(1 + rs.y3, 1 / 3) - 1 : null },
+      { key: "y5", label: "תשואה 5 שנים", yieldVal: rs.y5 != null ? Math.pow(1 + rs.y5, 1 / 5) - 1 : null },
+    ];
+
+    return scenarios.map(s => {
+      if (s.yieldVal == null) return { ...s, withDeposits: null, withoutDeposits: null };
+      const monthlyYield = Math.pow(1 + s.yieldVal, 1 / 12) - 1;
+
+      let bal = currentBalance;
+      for (let i = 0; i < forecastMonths; i++) {
+        const fees = avgDeposit * depositFee + bal * accumFee;
+        bal = bal * (1 + monthlyYield) + avgDeposit - fees;
+      }
+      const withDeposits = bal;
+
+      bal = currentBalance;
+      for (let i = 0; i < forecastMonths; i++) {
+        const fees = bal * accumFee;
+        bal = bal * (1 + monthlyYield) - fees;
+      }
+      const withoutDeposits = bal;
+
+      return { ...s, withDeposits, withoutDeposits };
+    });
+  };
+
+  // Build projection table for hishtalmut funds (1-5 years ahead)
+  const buildHishtalmutProjection = (fund: PensionFund) => {
+    const sorted = getEntriesSorted(fund.id);
+    if (sorted.length < 2) return null;
+
+    const rs = getReturnSummary(fund.id);
+    const last12 = sorted.slice(-12);
+    const avgDeposit = last12.reduce((s, e) => s + Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation), 0) / last12.length;
+
+    const depositFee = (fund.deposit_fee_pct || 0) / 100;
+    const accumFee = (fund.accumulation_fee_pct || 0) / 100 / 12;
+    const currentBalance = Number(sorted[sorted.length - 1].closing_balance);
+
+    const scenarios = [
+      { key: "y1", label: "תשואה שנה", yieldVal: rs.y1 },
+      { key: "y3", label: "תשואה 3 שנים", yieldVal: rs.y3 != null ? Math.pow(1 + rs.y3, 1 / 3) - 1 : null },
+      { key: "y5", label: "תשואה 5 שנים", yieldVal: rs.y5 != null ? Math.pow(1 + rs.y5, 1 / 5) - 1 : null },
+    ];
+
+    return scenarios.map(s => {
+      if (s.yieldVal == null) return { ...s, projections: [null, null, null, null, null] as (number | null)[] };
+      const monthlyYield = Math.pow(1 + s.yieldVal, 1 / 12) - 1;
+      const projections: number[] = [];
+      let bal = currentBalance;
+      for (let yr = 1; yr <= 5; yr++) {
+        for (let m = 0; m < 12; m++) {
+          const fees = avgDeposit * depositFee + bal * accumFee;
+          bal = bal * (1 + monthlyYield) + avgDeposit - fees;
+        }
+        projections.push(Math.round(bal));
+      }
+      return { ...s, projections };
+    });
   };
 
   const renderReturnCards = (fundId: string) => {
@@ -561,6 +650,11 @@ export default function PensionPage() {
     const balance = getLatestBalance(fundId);
     const fund = funds.find(f => f.id === fundId);
     const showForecast = fund && (fund.type === "pension" || fund.type === "child_savings" || fund.type === "hishtalmut");
+
+    // Pension projection
+    const pensionProjection = fund?.type === "pension" ? buildPensionProjection(fund) : null;
+    // Hishtalmut projection
+    const hishtalmutProjection = fund?.type === "hishtalmut" ? buildHishtalmutProjection(fund) : null;
 
     return (
       <div className="space-y-4">
@@ -571,6 +665,66 @@ export default function PensionPage() {
             <p className="text-2xl sm:text-3xl font-bold">{fmt(balance)}</p>
           </CardContent>
         </Card>
+
+        {/* Pension projection table */}
+        {pensionProjection && (
+          <Card>
+            <CardHeader className="p-3 sm:p-4 pb-2">
+              <CardTitle className="text-sm">📋 תחזית חיסכון עד גיל פרישה</CardTitle>
+            </CardHeader>
+            <CardContent className="p-2 sm:p-4 pt-0 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-right text-xs">תרחיש</TableHead>
+                    <TableHead className="text-right text-xs">עם הפקדות</TableHead>
+                    <TableHead className="text-right text-xs">ללא הפקדות</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pensionProjection.map(s => (
+                    <TableRow key={s.key}>
+                      <TableCell className="text-xs font-medium">{s.label}</TableCell>
+                      <TableCell className="text-xs">{s.withDeposits != null ? fmt(s.withDeposits) : "אין נתונים"}</TableCell>
+                      <TableCell className="text-xs">{s.withoutDeposits != null ? fmt(s.withoutDeposits) : "אין נתונים"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Hishtalmut projection table */}
+        {hishtalmutProjection && (
+          <Card>
+            <CardHeader className="p-3 sm:p-4 pb-2">
+              <CardTitle className="text-sm">📋 תחזית חיסכון 1-5 שנים קדימה</CardTitle>
+            </CardHeader>
+            <CardContent className="p-2 sm:p-4 pt-0 overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-right text-xs">תרחיש</TableHead>
+                    {[1, 2, 3, 4, 5].map(yr => (
+                      <TableHead key={yr} className="text-right text-xs">{yr} {yr === 1 ? "שנה" : "שנים"}</TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {hishtalmutProjection.map(s => (
+                    <TableRow key={s.key}>
+                      <TableCell className="text-xs font-medium">{s.label}</TableCell>
+                      {s.projections.map((p, i) => (
+                        <TableCell key={i} className="text-xs">{p != null ? fmt(p) : "אין נתונים"}</TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Forecast chart */}
         {showForecast && <ForecastChart fund={fund} buildForecastData={buildForecastData} />}
@@ -989,6 +1143,50 @@ export default function PensionPage() {
     return null;
   };
 
+  // Investment summary computation
+  const monthlyInvestmentSummary = useMemo(() => {
+    const relFundIds = new Set(relevantFunds.map(f => f.id));
+    const monthSet = new Set<string>();
+    for (const e of entries) {
+      if (!relFundIds.has(e.fund_id)) continue;
+      monthSet.add(`${e.year}-${String(e.month).padStart(2, '0')}`);
+    }
+    const sortedMonths = [...monthSet].sort();
+    let prevTotalValue = 0;
+    const result: { label: string; value: number; deposits: number; profit: number; yieldPct: number }[] = [];
+    for (const mk of sortedMonths) {
+      const [yr, mn] = mk.split('-').map(Number);
+      let totalValue = 0, totalDeposits = 0, totalProfit = 0;
+      for (const fund of relevantFunds) {
+        const fe = getEntriesSorted(fund.id);
+        const entry = fe.find(e => e.year === yr && e.month === mn);
+        if (!entry) continue;
+        const idx = fe.indexOf(entry);
+        const prevBal = idx > 0 ? Number(fe[idx - 1].closing_balance) : 0;
+        const dep = Number(entry.employee_contribution) + Number(entry.employer_contribution) + Number(entry.compensation);
+        const fees = Number(entry.management_fees);
+        totalValue += Number(entry.closing_balance);
+        totalDeposits += dep;
+        totalProfit += (Number(entry.closing_balance) - prevBal - dep + fees);
+      }
+      const yieldPct = prevTotalValue > 0 ? totalProfit / prevTotalValue : 0;
+      result.push({ label: `${MONTHS[mn - 1]} ${yr}`, value: totalValue, deposits: totalDeposits, profit: totalProfit, yieldPct });
+      prevTotalValue = totalValue;
+    }
+    return result.reverse();
+  }, [entries, relevantFunds]);
+
+  const monthlyCapitalGrowth = useMemo(() => {
+    return monthlyInvestmentSummary.map((row, i) => {
+      const totalCapital = row.value + checkingBalance;
+      const prevRow = i < monthlyInvestmentSummary.length - 1 ? monthlyInvestmentSummary[i + 1] : null;
+      const prevCapital = prevRow ? prevRow.value + checkingBalance : 0;
+      const growth = prevCapital > 0 ? totalCapital - prevCapital : 0;
+      const growthPct = prevCapital > 0 ? growth / prevCapital : 0;
+      return { label: row.label, totalCapital, growth, growthPct };
+    });
+  }, [monthlyInvestmentSummary, checkingBalance]);
+
   return (
     <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6">
       <h1 className="text-xl sm:text-2xl font-bold tracking-tight">פנסיה וחסכונות</h1>
@@ -1052,6 +1250,95 @@ export default function PensionPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Investment Summary & Capital Growth Matrices */}
+          {monthlyInvestmentSummary.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+              {/* Investment Summary */}
+              <Card>
+                <CardHeader className="p-3 sm:p-4 pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm sm:text-base">סיכום השקעות</CardTitle>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => qc.invalidateQueries({ queryKey: ["pension_entries"] })}>
+                      <RefreshCw className="h-3 w-3 ml-1" /> רענון
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0 overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-right text-xs">חודש</TableHead>
+                        <TableHead className="text-right text-xs">שווי נוכחי</TableHead>
+                        <TableHead className="text-right text-xs">הפקדה</TableHead>
+                        <TableHead className="text-right text-xs">רווח</TableHead>
+                        <TableHead className="text-right text-xs">תשואה</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(showAllInvestment ? monthlyInvestmentSummary : monthlyInvestmentSummary.slice(0, 5)).map((row, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-xs whitespace-nowrap">{row.label}</TableCell>
+                          <TableCell className="text-xs">{fmt(row.value)}</TableCell>
+                          <TableCell className="text-xs">{fmt(row.deposits)}</TableCell>
+                          <TableCell className={`text-xs ${row.profit >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(row.profit)}</TableCell>
+                          <TableCell className={`text-xs ${row.yieldPct >= 0 ? "text-green-600" : "text-red-600"}`}>{pct(row.yieldPct)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {monthlyInvestmentSummary.length > 5 && (
+                    <div className="p-2 text-center">
+                      <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setShowAllInvestment(!showAllInvestment)}>
+                        {showAllInvestment ? "הצג פחות" : "הצג הכל"} <ChevronDown className={`h-3 w-3 mr-1 transition-transform ${showAllInvestment ? "rotate-180" : ""}`} />
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Capital Growth */}
+              <Card>
+                <CardHeader className="p-3 sm:p-4 pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm sm:text-base">גידול הון</CardTitle>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => qc.invalidateQueries({ queryKey: ["pension_entries"] })}>
+                      <RefreshCw className="h-3 w-3 ml-1" /> רענון
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0 overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-right text-xs">חודש</TableHead>
+                        <TableHead className="text-right text-xs">סה״כ הון</TableHead>
+                        <TableHead className="text-right text-xs">גידול</TableHead>
+                        <TableHead className="text-right text-xs">שיעור גידול</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(showAllGrowth ? monthlyCapitalGrowth : monthlyCapitalGrowth.slice(0, 5)).map((row, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-xs whitespace-nowrap">{row.label}</TableCell>
+                          <TableCell className="text-xs">{fmt(row.totalCapital)}</TableCell>
+                          <TableCell className={`text-xs ${row.growth >= 0 ? "text-green-600" : "text-red-600"}`}>{fmt(row.growth)}</TableCell>
+                          <TableCell className={`text-xs ${row.growthPct >= 0 ? "text-green-600" : "text-red-600"}`}>{pct(row.growthPct)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  {monthlyCapitalGrowth.length > 5 && (
+                    <div className="p-2 text-center">
+                      <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setShowAllGrowth(!showAllGrowth)}>
+                        {showAllGrowth ? "הצג פחות" : "הצג הכל"} <ChevronDown className={`h-3 w-3 mr-1 transition-transform ${showAllGrowth ? "rotate-180" : ""}`} />
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
 
           {/* Main funds summary table (excluding child_savings) */}
           {nonChildFunds.length > 0 && (
