@@ -501,6 +501,7 @@ export default function PensionPage() {
 
   const renderFundContent = (fund: PensionFund) => {
     const fundEntries = getEntriesSorted(fund.id);
+    const displayEntries = [...fundEntries].reverse();
     const showSettings = fund.type !== "self_trading" && fund.type !== "other";
     const isDividend = isDividendFund(fund);
 
