@@ -35,6 +35,9 @@ interface PensionFund {
   type: FundType;
   parent_matching: boolean;
   state_deposit_amount: number;
+  birth_date: string | null;
+  retirement_age: number;
+  end_savings_age: number;
 }
 
 interface PensionEntry {
