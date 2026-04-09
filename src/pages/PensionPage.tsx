@@ -380,8 +380,6 @@ export default function PensionPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Debt mutations
-  const createDebt = useMutation({
     mutationFn: async () => {
       const { error } = await supabase.from("debts").insert({
         user_id: user!.id,
