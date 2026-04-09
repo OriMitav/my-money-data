@@ -1075,7 +1075,7 @@ export default function PensionPage() {
                       const typeLabel = TAB_CONFIG.find(t => t.type === fund.type)?.label || fund.type;
                       const isRelevant = fund.relevant !== false;
                       return (
-                        <TableRow key={fund.id} className={!isRelevant ? "opacity-50" : ""}>
+                        <TableRow key={fund.id}>
                           <TableCell className="text-right font-medium text-xs sm:text-sm">{fund.name}</TableCell>
                           <TableCell className="text-right text-xs sm:text-sm text-muted-foreground hidden sm:table-cell">{typeLabel}</TableCell>
                           <TableCell className="text-right text-xs sm:text-sm">{fmt(getLatestBalance(fund.id))}</TableCell>
