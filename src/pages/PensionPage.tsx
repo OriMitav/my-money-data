@@ -204,9 +204,13 @@ export default function PensionPage() {
         updatePayload.fund_name = settingsForm.fund_name;
         updatePayload.deposit_fee_pct = settingsForm.deposit_fee_pct;
         updatePayload.accumulation_fee_pct = settingsForm.accumulation_fee_pct;
+        updatePayload.birth_date = settingsForm.birth_date || null;
+        updatePayload.retirement_age = settingsForm.retirement_age;
       } else if (fund?.type === "child_savings") {
         updatePayload.parent_matching = settingsForm.parent_matching;
         updatePayload.state_deposit_amount = settingsForm.state_deposit_amount;
+        updatePayload.birth_date = settingsForm.birth_date || null;
+        updatePayload.end_savings_age = settingsForm.end_savings_age;
       }
       const { error } = await supabase.from("pension_funds").update(updatePayload).eq("id", settingsFundId);
       if (error) throw error;
