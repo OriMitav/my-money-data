@@ -52,6 +52,92 @@ export type Database = {
           },
         ]
       }
+      debt_entries: {
+        Row: {
+          created_at: string
+          debt_id: string
+          id: string
+          interest_paid: number
+          month: number
+          principal_paid: number
+          remaining_balance: number
+          total_paid: number
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          created_at?: string
+          debt_id: string
+          id?: string
+          interest_paid?: number
+          month: number
+          principal_paid?: number
+          remaining_balance?: number
+          total_paid?: number
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          created_at?: string
+          debt_id?: string
+          id?: string
+          interest_paid?: number
+          month?: number
+          principal_paid?: number
+          remaining_balance?: number
+          total_paid?: number
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "debt_entries_debt_id_fkey"
+            columns: ["debt_id"]
+            isOneToOne: false
+            referencedRelation: "debts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      debts: {
+        Row: {
+          created_at: string
+          debtor_name: string
+          fixed_payment_amount: number
+          id: string
+          is_zero_interest: boolean
+          name: string
+          total_amount: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          debtor_name?: string
+          fixed_payment_amount?: number
+          id?: string
+          is_zero_interest?: boolean
+          name: string
+          total_amount?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          debtor_name?: string
+          fixed_payment_amount?: number
+          id?: string
+          is_zero_interest?: boolean
+          name?: string
+          total_amount?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       earners: {
         Row: {
           created_at: string
@@ -256,6 +342,7 @@ export type Database = {
           end_savings_age: number
           fund_name: string
           id: string
+          life_expectancy_age: number
           name: string
           parent_matching: boolean
           relevant: boolean
@@ -275,6 +362,7 @@ export type Database = {
           end_savings_age?: number
           fund_name?: string
           id?: string
+          life_expectancy_age?: number
           name: string
           parent_matching?: boolean
           relevant?: boolean
@@ -294,6 +382,7 @@ export type Database = {
           end_savings_age?: number
           fund_name?: string
           id?: string
+          life_expectancy_age?: number
           name?: string
           parent_matching?: boolean
           relevant?: boolean
