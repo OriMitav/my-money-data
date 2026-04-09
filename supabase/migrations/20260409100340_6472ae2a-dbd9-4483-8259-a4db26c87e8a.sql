@@ -1,0 +1,1 @@
+ALTER TABLE public.pension_funds ADD COLUMN relevant boolean NOT NULL DEFAULT true;

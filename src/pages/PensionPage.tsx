@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers } from "lucide-react";
+import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye } from "lucide-react";
 import { toast } from "sonner";
 
 const MONTHS = [
@@ -28,6 +28,7 @@ interface PensionFund {
   employer: string;
   fund_name: string;
   accessible: boolean;
+  relevant: boolean;
   deposit_fee_pct: number;
   accumulation_fee_pct: number;
   type: FundType;
@@ -91,7 +92,7 @@ export default function PensionPage() {
     queryFn: async () => {
       const { data, error } = await supabase.from("pension_funds").select("*").order("created_at");
       if (error) throw error;
-      return data as PensionFund[];
+      return data as unknown as PensionFund[];
     },
   });
 
@@ -141,6 +142,15 @@ export default function PensionPage() {
   const toggleAccessible = useMutation({
     mutationFn: async ({ id, accessible }: { id: string; accessible: boolean }) => {
       const { error } = await supabase.from("pension_funds").update({ accessible }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pension_funds"] }),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleRelevant = useMutation({
+    mutationFn: async ({ id, relevant }: { id: string; relevant: boolean }) => {
+      const { error } = await supabase.from("pension_funds").update({ relevant } as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["pension_funds"] }),
@@ -204,8 +214,7 @@ export default function PensionPage() {
       const profit = entryForm.closing - (prevBalance + totalDeposit - calcFees);
       const monthlyReturn = prevBalance > 0 ? profit / prevBalance : 0;
 
-      // For dividend funds, compensation stores the dividend amount
-      const compensationVal = isDividendFund(fund!) ? entryForm.compensation : entryForm.compensation;
+      const compensationVal = entryForm.compensation;
 
       const payload: any = {
         user_id: user!.id,
@@ -306,6 +315,7 @@ export default function PensionPage() {
     return sorted.length > 0 ? Number(sorted[sorted.length - 1].closing_balance) : 0;
   };
 
+  // COMPOUND yield calculation: multiplicative, not additive
   const getReturnSummary = (fundId: string) => {
     const sorted = getEntriesSorted(fundId);
     if (sorted.length < 2) return { y1: null, y3: null, y5: null, p1: null, p3: null, p5: null };
@@ -313,43 +323,48 @@ export default function PensionPage() {
     const now = sorted[sorted.length - 1];
     const nowDate = new Date(now.year, now.month - 1);
 
-    const findClosestEntry = (monthsBack: number) => {
-      const target = new Date(nowDate);
-      target.setMonth(target.getMonth() - monthsBack);
-      const targetTime = target.getTime();
-      let closest: PensionEntry | null = null;
-      let closestDist = Infinity;
-      for (const e of sorted) {
-        const eDate = new Date(e.year, e.month - 1);
-        if (eDate >= nowDate) continue;
-        const dist = Math.abs(eDate.getTime() - targetTime);
-        if (dist < closestDist) { closestDist = dist; closest = e; }
-      }
-      if (closest && closestDist <= 62 * 24 * 60 * 60 * 1000) return closest;
-      return null;
-    };
+    const calcCompoundReturn = (monthsBack: number) => {
+      const targetDate = new Date(nowDate);
+      targetDate.setMonth(targetDate.getMonth() - monthsBack);
 
-    const calcReturn = (monthsBack: number) => {
-      const start = findClosestEntry(monthsBack);
-      if (!start) return { ret: null, profit: null };
-      const startBal = Number(start.closing_balance);
-      if (startBal <= 0) return { ret: null, profit: null };
-      const endBal = Number(now.closing_balance);
-      const sDate = new Date(start.year, start.month - 1);
-      const relevantEntries = sorted.filter(e => {
+      // Find entries within the period
+      const periodEntries = sorted.filter(e => {
         const eDate = new Date(e.year, e.month - 1);
-        return eDate > sDate && eDate <= nowDate;
+        return eDate > targetDate && eDate <= nowDate;
       });
-      const totalDeposits = relevantEntries.reduce((s, e) =>
-        s + Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation), 0);
-      const totalFees = relevantEntries.reduce((s, e) => s + Number(e.management_fees), 0);
-      const profit = endBal - startBal - totalDeposits + totalFees;
-      return { ret: profit / startBal, profit };
+
+      if (periodEntries.length < 1) return { ret: null, profit: null };
+
+      // Check we have data going back far enough (within 2 months tolerance)
+      const firstEntryDate = new Date(periodEntries[0].year, periodEntries[0].month - 1);
+      const expectedStart = new Date(targetDate);
+      expectedStart.setMonth(expectedStart.getMonth() + 1);
+      const diffMs = Math.abs(firstEntryDate.getTime() - expectedStart.getTime());
+      if (diffMs > 62 * 24 * 60 * 60 * 1000) return { ret: null, profit: null };
+
+      // Compound: multiply (1 + monthly_return) for each month
+      let compoundFactor = 1;
+      for (const e of periodEntries) {
+        compoundFactor *= (1 + Number(e.monthly_return));
+      }
+      const totalReturn = compoundFactor - 1;
+
+      // Profit: sum of monthly profits
+      const startIdx = sorted.indexOf(periodEntries[0]);
+      const totalProfit = periodEntries.reduce((sum, e, i) => {
+        const idx = sorted.indexOf(e);
+        const prevBal = idx > 0 ? Number(sorted[idx - 1].closing_balance) : 0;
+        let dep = Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation);
+        const fees = Number(e.management_fees);
+        return sum + (Number(e.closing_balance) - prevBal - dep + fees);
+      }, 0);
+
+      return { ret: totalReturn, profit: totalProfit };
     };
 
-    const r1 = calcReturn(12);
-    const r3 = calcReturn(36);
-    const r5 = calcReturn(60);
+    const r1 = calcCompoundReturn(12);
+    const r3 = calcCompoundReturn(36);
+    const r5 = calcCompoundReturn(60);
 
     return {
       y1: r1.ret, y3: r3.ret, y5: r5.ret,
@@ -364,8 +379,10 @@ export default function PensionPage() {
     setFundDialogOpen(true);
   };
 
-  const totalAccessible = funds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0);
-  const grandTotal = funds.reduce((s, f) => s + getLatestBalance(f.id), 0);
+  // Only count relevant funds in totals
+  const relevantFunds = funds.filter(f => f.relevant !== false);
+  const totalAccessible = relevantFunds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0);
+  const grandTotal = relevantFunds.reduce((s, f) => s + getLatestBalance(f.id), 0);
   const nonChildFunds = funds.filter(f => f.type !== "child_savings");
   const childFunds = funds.filter(f => f.type === "child_savings");
 
@@ -376,35 +393,63 @@ export default function PensionPage() {
     const rs = getReturnSummary(fundId);
     const balance = getLatestBalance(fundId);
     return (
-      <div className="space-y-3">
+      <div className="space-y-4">
+        {/* Total balance */}
         <Card className="bg-primary/5 border-primary/20">
           <CardContent className="p-4 text-center">
             <p className="text-sm text-muted-foreground mb-1">סה״כ חיסכון בקופה</p>
-            <p className="text-3xl font-bold">{fmt(balance)}</p>
+            <p className="text-2xl sm:text-3xl font-bold">{fmt(balance)}</p>
           </CardContent>
         </Card>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {[
-            { label: "תשואה שנה", val: rs.y1 },
-            { label: "תשואה 3 שנים", val: rs.y3 },
-            { label: "תשואה 5 שנים", val: rs.y5 },
-            { label: "רווח שנה", val: rs.p1, isMoney: true },
-            { label: "רווח 3 שנים", val: rs.p3, isMoney: true },
-            { label: "רווח 5 שנים", val: rs.p5, isMoney: true },
-          ].map(({ label, val, isMoney }) => (
-            <Card key={label}>
-              <CardContent className="p-3 text-center">
-                <p className="text-xs text-muted-foreground mb-1">{label}</p>
-                {val !== null && val !== undefined ? (
-                  <p className={`text-sm font-bold ${val >= 0 ? "text-green-600" : "text-red-600"}`}>
-                    {isMoney ? fmt(val) : pct(val)}
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">אין נתונים</p>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+
+        {/* Yields section */}
+        <div>
+          <h4 className="text-sm font-semibold text-muted-foreground mb-2">📈 תשואות</h4>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {[
+              { label: "שנה", val: rs.y1 },
+              { label: "3 שנים", val: rs.y3 },
+              { label: "5 שנים", val: rs.y5 },
+            ].map(({ label, val }) => (
+              <Card key={label}>
+                <CardContent className="p-2 sm:p-3 text-center">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground mb-1">{label}</p>
+                  {val !== null && val !== undefined ? (
+                    <p className={`text-xs sm:text-sm font-bold ${val >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {pct(val)}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] sm:text-xs text-muted-foreground">אין נתונים</p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+
+        {/* Profits section */}
+        <div>
+          <h4 className="text-sm font-semibold text-muted-foreground mb-2">💰 רווחים</h4>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {[
+              { label: "שנה", val: rs.p1 },
+              { label: "3 שנים", val: rs.p3 },
+              { label: "5 שנים", val: rs.p5 },
+            ].map(({ label, val }) => (
+              <Card key={label}>
+                <CardContent className="p-2 sm:p-3 text-center">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground mb-1">{label}</p>
+                  {val !== null && val !== undefined ? (
+                    <p className={`text-xs sm:text-sm font-bold ${val >= 0 ? "text-green-600" : "text-red-600"}`}>
+                      {fmt(val)}
+                    </p>
+                  ) : (
+                    <p className="text-[10px] sm:text-xs text-muted-foreground">אין נתונים</p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -417,19 +462,19 @@ export default function PensionPage() {
 
     return (
       <TabsContent key={fund.id} value={fund.id} className="space-y-4">
-        <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">{fund.name}</h2>
           <div className="flex gap-2 flex-wrap">
             {showSettings && (
               <Button size="sm" variant="outline" onClick={() => openFundSettings(fund)}>
-                <Settings2 className="ml-1 h-4 w-4" /> הגדרות
+                <Settings2 className="ml-1 h-4 w-4" /> <span className="hidden sm:inline">הגדרות</span>
               </Button>
             )}
             <Button size="sm" onClick={() => openNewEntry(fund.id)}>
-              <Plus className="ml-1 h-4 w-4" /> הוסף חודש
+              <Plus className="ml-1 h-4 w-4" /> <span className="hidden sm:inline">הוסף חודש</span><span className="sm:hidden">הוסף</span>
             </Button>
             <Button size="sm" variant="destructive" onClick={() => deleteFund.mutate(fund.id)}>
-              <Trash2 className="ml-1 h-4 w-4" /> מחק
+              <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         </div>
@@ -441,34 +486,34 @@ export default function PensionPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>חודש</TableHead>
-                  {fund.type === "pension" && <TableHead>מעסיק</TableHead>}
-                  {fund.type === "pension" && <TableHead>קרן הפנסיה</TableHead>}
-                  {fund.type === "hishtalmut" && <TableHead>מעסיק</TableHead>}
-                  {fund.type === "hishtalmut" && <TableHead>קרן</TableHead>}
-                  {fund.type === "pension" && <TableHead>תגמולי עובד</TableHead>}
-                  {fund.type === "pension" && <TableHead>תגמולי מעסיק</TableHead>}
-                  {fund.type === "pension" && <TableHead>פיצויים</TableHead>}
-                  {fund.type === "hishtalmut" && <TableHead>הפקדת עובד</TableHead>}
-                  {fund.type === "hishtalmut" && <TableHead>הפקדת מעסיק</TableHead>}
-                  {fund.type === "hishtalmut" && <TableHead>פיצויים</TableHead>}
-                  {fund.type === "child_savings" && <TableHead>הפקדת מדינה</TableHead>}
-                  {fund.type === "child_savings" && fund.parent_matching && <TableHead>הפקדת הורים</TableHead>}
-                  {fund.type === "self_trading" && <TableHead>הפקדה</TableHead>}
-                  {isDividend && <TableHead>דיבידנד</TableHead>}
-                  {fund.type === "other" && <TableHead>הפקדה</TableHead>}
-                  {(fund.type !== "self_trading" || !isDividend) && fund.type !== "other" && <TableHead>סה״כ הפקדה</TableHead>}
-                  {(fund.type === "pension" || fund.type === "hishtalmut") && <TableHead>דמי ניהול</TableHead>}
-                  <TableHead>רווח חודשי</TableHead>
-                  {fund.type === "other" ? <TableHead>שווי</TableHead> : <TableHead>שווי תיק</TableHead>}
-                  <TableHead>תשואה חודשית</TableHead>
+                  <TableHead className="whitespace-nowrap">חודש</TableHead>
+                  {fund.type === "pension" && <TableHead className="whitespace-nowrap">מעסיק</TableHead>}
+                  {fund.type === "pension" && <TableHead className="whitespace-nowrap">קרן</TableHead>}
+                  {fund.type === "hishtalmut" && <TableHead className="whitespace-nowrap">מעסיק</TableHead>}
+                  {fund.type === "hishtalmut" && <TableHead className="whitespace-nowrap">קרן</TableHead>}
+                  {fund.type === "pension" && <TableHead className="whitespace-nowrap">עובד</TableHead>}
+                  {fund.type === "pension" && <TableHead className="whitespace-nowrap">מעסיק</TableHead>}
+                  {fund.type === "pension" && <TableHead className="whitespace-nowrap">פיצויים</TableHead>}
+                  {fund.type === "hishtalmut" && <TableHead className="whitespace-nowrap">עובד</TableHead>}
+                  {fund.type === "hishtalmut" && <TableHead className="whitespace-nowrap">מעסיק</TableHead>}
+                  {fund.type === "hishtalmut" && <TableHead className="whitespace-nowrap">פיצויים</TableHead>}
+                  {fund.type === "child_savings" && <TableHead className="whitespace-nowrap">מדינה</TableHead>}
+                  {fund.type === "child_savings" && fund.parent_matching && <TableHead className="whitespace-nowrap">הורים</TableHead>}
+                  {fund.type === "self_trading" && <TableHead className="whitespace-nowrap">הפקדה</TableHead>}
+                  {isDividend && <TableHead className="whitespace-nowrap">דיבידנד</TableHead>}
+                  {fund.type === "other" && <TableHead className="whitespace-nowrap">הפקדה</TableHead>}
+                  {(fund.type !== "self_trading" || !isDividend) && fund.type !== "other" && <TableHead className="whitespace-nowrap">סה״כ</TableHead>}
+                  {(fund.type === "pension" || fund.type === "hishtalmut") && <TableHead className="whitespace-nowrap">דמ״נ</TableHead>}
+                  <TableHead className="whitespace-nowrap">רווח</TableHead>
+                  <TableHead className="whitespace-nowrap">שווי</TableHead>
+                  <TableHead className="whitespace-nowrap">תשואה</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {fundEntries.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={15} className="text-center text-muted-foreground py-8">
-                      אין נתונים עדיין. לחץ "הוסף חודש" כדי להתחיל.
+                      אין נתונים עדיין. לחץ &quot;הוסף חודש&quot; כדי להתחיל.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -488,33 +533,33 @@ export default function PensionPage() {
 
                     return (
                       <TableRow key={entry.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditEntry(entry)}>
-                        <TableCell className="whitespace-nowrap font-medium text-sm">
+                        <TableCell className="whitespace-nowrap font-medium text-xs sm:text-sm">
                           {MONTHS[entry.month - 1]} {entry.year}
                         </TableCell>
-                        {fund.type === "pension" && <TableCell className="text-sm">{entry.employer || "-"}</TableCell>}
-                        {fund.type === "pension" && <TableCell className="text-sm">{entry.fund_name || "-"}</TableCell>}
-                        {fund.type === "hishtalmut" && <TableCell className="text-sm">{entry.employer || "-"}</TableCell>}
-                        {fund.type === "hishtalmut" && <TableCell className="text-sm">{entry.fund_name || "-"}</TableCell>}
-                        {fund.type === "pension" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
-                        {fund.type === "pension" && <TableCell className="text-sm">{fmt(Number(entry.employer_contribution))}</TableCell>}
-                        {fund.type === "pension" && <TableCell className="text-sm">{fmt(Number(entry.compensation))}</TableCell>}
-                        {fund.type === "hishtalmut" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
-                        {fund.type === "hishtalmut" && <TableCell className="text-sm">{fmt(Number(entry.employer_contribution))}</TableCell>}
-                        {fund.type === "hishtalmut" && <TableCell className="text-sm">{fmt(Number(entry.compensation))}</TableCell>}
-                        {fund.type === "child_savings" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
-                        {fund.type === "child_savings" && fund.parent_matching && <TableCell className="text-sm">{fmt(Number(entry.employer_contribution))}</TableCell>}
-                        {fund.type === "self_trading" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
-                        {isDividend && <TableCell className="text-sm">{fmt(Number(entry.compensation))}</TableCell>}
-                        {fund.type === "other" && <TableCell className="text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
+                        {fund.type === "pension" && <TableCell className="text-xs sm:text-sm">{entry.employer || "-"}</TableCell>}
+                        {fund.type === "pension" && <TableCell className="text-xs sm:text-sm">{entry.fund_name || "-"}</TableCell>}
+                        {fund.type === "hishtalmut" && <TableCell className="text-xs sm:text-sm">{entry.employer || "-"}</TableCell>}
+                        {fund.type === "hishtalmut" && <TableCell className="text-xs sm:text-sm">{entry.fund_name || "-"}</TableCell>}
+                        {fund.type === "pension" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
+                        {fund.type === "pension" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employer_contribution))}</TableCell>}
+                        {fund.type === "pension" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.compensation))}</TableCell>}
+                        {fund.type === "hishtalmut" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
+                        {fund.type === "hishtalmut" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employer_contribution))}</TableCell>}
+                        {fund.type === "hishtalmut" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.compensation))}</TableCell>}
+                        {fund.type === "child_savings" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
+                        {fund.type === "child_savings" && fund.parent_matching && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employer_contribution))}</TableCell>}
+                        {fund.type === "self_trading" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
+                        {isDividend && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.compensation))}</TableCell>}
+                        {fund.type === "other" && <TableCell className="text-xs sm:text-sm">{fmt(Number(entry.employee_contribution))}</TableCell>}
                         {(fund.type !== "self_trading" || !isDividend) && fund.type !== "other" && (
-                          <TableCell className="text-sm font-medium">{fmt(totalDeposit)}</TableCell>
+                          <TableCell className="text-xs sm:text-sm font-medium">{fmt(totalDeposit)}</TableCell>
                         )}
-                        {(fund.type === "pension" || fund.type === "hishtalmut") && <TableCell className="text-sm">{fmt(fees)}</TableCell>}
-                        <TableCell className={`text-sm font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {(fund.type === "pension" || fund.type === "hishtalmut") && <TableCell className="text-xs sm:text-sm">{fmt(fees)}</TableCell>}
+                        <TableCell className={`text-xs sm:text-sm font-medium ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
                           {fmt(profit)}
                         </TableCell>
-                        <TableCell className="text-sm font-bold">{fmt(Number(entry.closing_balance))}</TableCell>
-                        <TableCell className={`text-sm font-medium ${monthlyReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        <TableCell className="text-xs sm:text-sm font-bold">{fmt(Number(entry.closing_balance))}</TableCell>
+                        <TableCell className={`text-xs sm:text-sm font-medium ${monthlyReturn >= 0 ? "text-green-600" : "text-red-600"}`}>
                           {pct(monthlyReturn)}
                         </TableCell>
                       </TableRow>
@@ -543,7 +588,7 @@ export default function PensionPage() {
 
         {typeFunds.length === 0 ? (
           <Card>
-            <CardContent className="p-12 text-center">
+            <CardContent className="p-8 sm:p-12 text-center">
               <div className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4 flex items-center justify-center">{config.icon}</div>
               <h3 className="font-semibold text-lg mb-1">אין קרנות עדיין</h3>
               <p className="text-muted-foreground text-sm">לחץ על &quot;{config.createLabel}&quot; כדי להתחיל</p>
@@ -553,7 +598,7 @@ export default function PensionPage() {
           <Tabs value={selectedFund && typeFunds.some(f => f.id === selectedFund) ? selectedFund : typeFunds[0]?.id || ""} onValueChange={setSelectedFund} dir="rtl">
             <TabsList className="flex-wrap h-auto">
               {typeFunds.map(f => (
-                <TabsTrigger key={f.id} value={f.id}>{f.name}</TabsTrigger>
+                <TabsTrigger key={f.id} value={f.id} className="text-xs sm:text-sm">{f.name}</TabsTrigger>
               ))}
             </TabsList>
             {typeFunds.map(fund => renderFundContent(fund))}
@@ -602,34 +647,34 @@ export default function PensionPage() {
         )}
 
         {type === "pension" && (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
             <div className="space-y-2">
-              <Label>תגמולי עובד</Label>
+              <Label className="text-xs sm:text-sm">תגמולי עובד</Label>
               <Input type="number" value={entryForm.employee} onChange={(e) => setEntryForm({ ...entryForm, employee: Number(e.target.value) })} />
             </div>
             <div className="space-y-2">
-              <Label>תגמולי מעסיק</Label>
+              <Label className="text-xs sm:text-sm">תגמולי מעסיק</Label>
               <Input type="number" value={entryForm.employerC} onChange={(e) => setEntryForm({ ...entryForm, employerC: Number(e.target.value) })} />
             </div>
             <div className="space-y-2">
-              <Label>פיצויים</Label>
+              <Label className="text-xs sm:text-sm">פיצויים</Label>
               <Input type="number" value={entryForm.compensation} onChange={(e) => setEntryForm({ ...entryForm, compensation: Number(e.target.value) })} />
             </div>
           </div>
         )}
 
         {type === "hishtalmut" && (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
             <div className="space-y-2">
-              <Label>הפקדת עובד</Label>
+              <Label className="text-xs sm:text-sm">הפקדת עובד</Label>
               <Input type="number" value={entryForm.employee} onChange={(e) => setEntryForm({ ...entryForm, employee: Number(e.target.value) })} />
             </div>
             <div className="space-y-2">
-              <Label>הפקדת מעסיק</Label>
+              <Label className="text-xs sm:text-sm">הפקדת מעסיק</Label>
               <Input type="number" value={entryForm.employerC} onChange={(e) => setEntryForm({ ...entryForm, employerC: Number(e.target.value) })} />
             </div>
             <div className="space-y-2">
-              <Label>פיצויים</Label>
+              <Label className="text-xs sm:text-sm">פיצויים</Label>
               <Input type="number" value={entryForm.compensation} onChange={(e) => setEntryForm({ ...entryForm, compensation: Number(e.target.value) })} />
             </div>
           </div>
@@ -749,40 +794,42 @@ export default function PensionPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">פנסיה וחסכונות</h1>
+    <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6">
+      <h1 className="text-xl sm:text-2xl font-bold tracking-tight">פנסיה וחסכונות</h1>
 
       <Tabs value={mainTab} onValueChange={setMainTab} dir="rtl">
-        <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="summary">סיכום</TabsTrigger>
-          {TAB_CONFIG.map(t => (
-            <TabsTrigger key={t.type} value={t.type} className="flex items-center gap-1">
-              {t.icon} {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="overflow-x-auto -mx-3 px-3 sm:mx-0 sm:px-0">
+          <TabsList className="flex-wrap h-auto min-w-max sm:min-w-0">
+            <TabsTrigger value="summary" className="text-xs sm:text-sm">סיכום</TabsTrigger>
+            {TAB_CONFIG.map(t => (
+              <TabsTrigger key={t.type} value={t.type} className="flex items-center gap-1 text-xs sm:text-sm">
+                {t.icon} <span className="hidden sm:inline">{t.label}</span><span className="sm:hidden">{t.label.split(" ")[0]}</span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         {/* Summary Tab */}
-        <TabsContent value="summary" className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <TabsContent value="summary" className="space-y-4 sm:space-y-6">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <CardHeader className="pb-2 p-3 sm:p-6 sm:pb-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <Unlock className="h-4 w-4" /> כסף נגיש
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-green-600">{fmt(totalAccessible)}</p>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <p className="text-lg sm:text-2xl font-bold text-green-600">{fmt(totalAccessible)}</p>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <CardHeader className="pb-2 p-3 sm:p-6 sm:pb-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground flex items-center gap-2">
                   <PiggyBank className="h-4 w-4" /> סה״כ הון
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(grandTotal)}</p>
+              <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                <p className="text-lg sm:text-2xl font-bold">{fmt(grandTotal)}</p>
               </CardContent>
             </Card>
           </div>
@@ -790,31 +837,39 @@ export default function PensionPage() {
           {/* Main funds summary table (excluding child_savings) */}
           {nonChildFunds.length > 0 && (
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">סיכום קרנות</CardTitle>
+              <CardHeader className="p-3 sm:p-6">
+                <CardTitle className="text-base sm:text-lg">סיכום קרנות</CardTitle>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-right">שם הקרן</TableHead>
-                      <TableHead className="text-right">סוג</TableHead>
-                      <TableHead className="text-right">יתרה נוכחית</TableHead>
+                      <TableHead className="text-right hidden sm:table-cell">סוג</TableHead>
+                      <TableHead className="text-right">יתרה</TableHead>
                       <TableHead className="text-center">נגישות</TableHead>
+                      <TableHead className="text-center">רלוונטי</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {nonChildFunds.map(fund => {
                       const typeLabel = TAB_CONFIG.find(t => t.type === fund.type)?.label || fund.type;
+                      const isRelevant = fund.relevant !== false;
                       return (
-                        <TableRow key={fund.id}>
-                          <TableCell className="text-right font-medium">{fund.name}</TableCell>
-                          <TableCell className="text-right text-sm text-muted-foreground">{typeLabel}</TableCell>
-                          <TableCell className="text-right">{fmt(getLatestBalance(fund.id))}</TableCell>
+                        <TableRow key={fund.id} className={!isRelevant ? "opacity-50" : ""}>
+                          <TableCell className="text-right font-medium text-xs sm:text-sm">{fund.name}</TableCell>
+                          <TableCell className="text-right text-xs sm:text-sm text-muted-foreground hidden sm:table-cell">{typeLabel}</TableCell>
+                          <TableCell className="text-right text-xs sm:text-sm">{fmt(getLatestBalance(fund.id))}</TableCell>
                           <TableCell className="text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              {fund.accessible ? <Unlock className="h-4 w-4 text-green-600" /> : <Lock className="h-4 w-4 text-muted-foreground" />}
+                            <div className="flex items-center justify-center gap-1 sm:gap-2">
+                              {fund.accessible ? <Unlock className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" /> : <Lock className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />}
                               <Switch checked={fund.accessible} onCheckedChange={(v) => toggleAccessible.mutate({ id: fund.id, accessible: v })} />
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex items-center justify-center gap-1 sm:gap-2">
+                              {isRelevant ? <Eye className="h-3 w-3 sm:h-4 sm:w-4 text-primary" /> : <EyeOff className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />}
+                              <Switch checked={isRelevant} onCheckedChange={(v) => toggleRelevant.mutate({ id: fund.id, relevant: v })} />
                             </div>
                           </TableCell>
                         </TableRow>
@@ -829,29 +884,38 @@ export default function PensionPage() {
           {/* Child savings separate section */}
           {childFunds.length > 0 && (
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
+              <CardHeader className="p-3 sm:p-6">
+                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
                   <Baby className="h-5 w-5" /> חיסכון לכל ילד
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {childFunds.map(fund => (
-                    <Card key={fund.id} className="bg-muted/30 border">
-                      <CardContent className="p-4 text-center space-y-2">
-                        <p className="text-sm font-medium text-muted-foreground">{fund.name}</p>
-                        <p className="text-2xl font-bold">{fmt(getLatestBalance(fund.id))}</p>
-                        <div className="flex items-center justify-center gap-2 text-xs">
-                          {fund.accessible ? (
-                            <span className="flex items-center gap-1 text-green-600"><Unlock className="h-3 w-3" /> נגיש</span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-muted-foreground"><Lock className="h-3 w-3" /> נעול</span>
-                          )}
-                          <Switch className="scale-75" checked={fund.accessible} onCheckedChange={(v) => toggleAccessible.mutate({ id: fund.id, accessible: v })} />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+              <CardContent className="p-3 sm:p-6 pt-0 sm:pt-0">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                  {childFunds.map(fund => {
+                    const isRelevant = fund.relevant !== false;
+                    return (
+                      <Card key={fund.id} className={`bg-muted/30 border ${!isRelevant ? "opacity-50" : ""}`}>
+                        <CardContent className="p-3 sm:p-4 text-center space-y-2">
+                          <p className="text-xs sm:text-sm font-medium text-muted-foreground">{fund.name}</p>
+                          <p className="text-lg sm:text-2xl font-bold">{fmt(getLatestBalance(fund.id))}</p>
+                          <div className="flex items-center justify-center gap-2 text-xs">
+                            {fund.accessible ? (
+                              <span className="flex items-center gap-1 text-green-600"><Unlock className="h-3 w-3" /> נגיש</span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-muted-foreground"><Lock className="h-3 w-3" /> נעול</span>
+                            )}
+                            <Switch className="scale-75" checked={fund.accessible} onCheckedChange={(v) => toggleAccessible.mutate({ id: fund.id, accessible: v })} />
+                          </div>
+                          <div className="flex items-center justify-center gap-1 text-[10px] sm:text-xs">
+                            <span className={isRelevant ? "text-primary" : "text-muted-foreground"}>
+                              {isRelevant ? "נספר בהון" : "לא נספר"}
+                            </span>
+                            <Switch className="scale-[0.6]" checked={isRelevant} onCheckedChange={(v) => toggleRelevant.mutate({ id: fund.id, relevant: v })} />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -859,7 +923,7 @@ export default function PensionPage() {
 
           {funds.length === 0 && (
             <Card>
-              <CardContent className="p-12 text-center">
+              <CardContent className="p-8 sm:p-12 text-center">
                 <PiggyBank className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
                 <h3 className="font-semibold text-lg mb-1">אין קרנות עדיין</h3>
                 <p className="text-muted-foreground text-sm">הוסף קרנות בלשוניות השונות</p>
@@ -873,7 +937,7 @@ export default function PensionPage() {
 
       {/* Create Fund Dialog */}
       <Dialog open={fundDialogOpen} onOpenChange={setFundDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent className="sm:max-w-sm max-w-[95vw]">
           <DialogHeader><DialogTitle>{TAB_CONFIG.find(t => t.type === fundDialogType)?.createLabel}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -893,7 +957,7 @@ export default function PensionPage() {
               </div>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-row gap-2">
             <Button variant="outline" onClick={() => setFundDialogOpen(false)}>ביטול</Button>
             <Button onClick={() => { if (fundName.trim()) createFund.mutate(); }} disabled={createFund.isPending}>צור</Button>
           </DialogFooter>
@@ -902,10 +966,10 @@ export default function PensionPage() {
 
       {/* Fund Settings Dialog */}
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-w-[95vw]">
           <DialogHeader><DialogTitle>הגדרות קרן - {settingsFund?.name}</DialogTitle></DialogHeader>
           {renderSettingsFields()}
-          <DialogFooter>
+          <DialogFooter className="flex-row gap-2">
             <Button variant="outline" onClick={() => setSettingsDialogOpen(false)}>ביטול</Button>
             <Button onClick={() => saveFundSettings.mutate()} disabled={saveFundSettings.isPending}>שמור</Button>
           </DialogFooter>
@@ -914,10 +978,10 @@ export default function PensionPage() {
 
       {/* Add/Edit Entry Dialog */}
       <Dialog open={entryDialogOpen} onOpenChange={setEntryDialogOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-lg max-w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editEntryId ? "עריכת נתונים" : "הוסף חודש"}</DialogTitle></DialogHeader>
           {renderEntryFormFields()}
-          <DialogFooter>
+          <DialogFooter className="flex-row gap-2">
             <Button variant="outline" onClick={() => setEntryDialogOpen(false)}>ביטול</Button>
             <Button onClick={() => upsertEntry.mutate()} disabled={upsertEntry.isPending}>שמור</Button>
           </DialogFooter>
