@@ -433,9 +433,92 @@ export default function PensionPage() {
   const currentFundType = selectedFund ? funds.find(f => f.id === selectedFund)?.type : undefined;
   const settingsFund = settingsFundId ? funds.find(f => f.id === settingsFundId) : null;
 
+  // Build forecast chart data for pension/child_savings/hishtalmut
+  const buildForecastData = (fund: PensionFund, yieldScenario: "y1" | "y3" | "y5") => {
+    const sorted = getEntriesSorted(fund.id);
+    if (sorted.length < 2) return [];
+
+    // Historical data points (monthly closing balance)
+    const histData = sorted.map(e => ({
+      label: `${MONTHS[e.month - 1]} ${e.year}`,
+      balance: Number(e.closing_balance),
+      type: "history" as const,
+    }));
+
+    // Calculate average monthly deposit from last 12 months
+    const last12 = sorted.slice(-12);
+    const avgDeposit = last12.reduce((s, e) => {
+      const dep = Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation);
+      return s + dep;
+    }, 0) / last12.length;
+
+    // Get compound annual yield and normalize to monthly
+    const rs = getReturnSummary(fund.id);
+    let annualYield = 0;
+    if (yieldScenario === "y1" && rs.y1 != null) annualYield = rs.y1;
+    else if (yieldScenario === "y3" && rs.y3 != null) annualYield = Math.pow(1 + rs.y3, 1 / 3) - 1;
+    else if (yieldScenario === "y5" && rs.y5 != null) annualYield = Math.pow(1 + rs.y5, 1 / 5) - 1;
+    const monthlyYield = Math.pow(1 + annualYield, 1 / 12) - 1;
+
+    // Determine forecast months
+    let forecastMonths = 60; // default 5 years for hishtalmut
+    if (fund.type === "pension" && fund.birth_date) {
+      const birthDate = new Date(fund.birth_date);
+      const retireAge = fund.retirement_age || 67;
+      const retireDate = new Date(birthDate.getFullYear() + retireAge, birthDate.getMonth());
+      const lastEntry = sorted[sorted.length - 1];
+      const lastDate = new Date(lastEntry.year, lastEntry.month - 1);
+      forecastMonths = Math.max(0, Math.round((retireDate.getTime() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
+    } else if (fund.type === "child_savings" && fund.birth_date) {
+      const birthDate = new Date(fund.birth_date);
+      const endAge = fund.end_savings_age || 18;
+      const endDate = new Date(birthDate.getFullYear() + endAge, birthDate.getMonth());
+      const lastEntry = sorted[sorted.length - 1];
+      const lastDate = new Date(lastEntry.year, lastEntry.month - 1);
+      forecastMonths = Math.max(0, Math.round((endDate.getTime() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
+    }
+
+    // Cap forecast to avoid too many data points
+    forecastMonths = Math.min(forecastMonths, 600);
+
+    // Build forecast (show every 12th month for long periods, every month for short)
+    const step = forecastMonths > 120 ? 12 : forecastMonths > 60 ? 6 : 1;
+    let balance = sorted.length > 0 ? Number(sorted[sorted.length - 1].closing_balance) : 0;
+    const lastEntry = sorted[sorted.length - 1];
+    let curMonth = lastEntry.month;
+    let curYear = lastEntry.year;
+
+    const forecastData: { label: string; balance: number; type: "forecast" }[] = [];
+    const depositFee = (fund.deposit_fee_pct || 0) / 100;
+    const accumFee = (fund.accumulation_fee_pct || 0) / 100 / 12;
+
+    for (let i = 1; i <= forecastMonths; i++) {
+      curMonth++;
+      if (curMonth > 12) { curMonth = 1; curYear++; }
+      const fees = avgDeposit * depositFee + balance * accumFee;
+      balance = balance * (1 + monthlyYield) + avgDeposit - fees;
+      if (i % step === 0 || i === forecastMonths) {
+        forecastData.push({
+          label: `${MONTHS[curMonth - 1]} ${curYear}`,
+          balance: Math.round(balance),
+          type: "forecast",
+        });
+      }
+    }
+
+    // Thin out historical data for display (show every Nth for long histories)
+    const histStep = histData.length > 60 ? 12 : histData.length > 24 ? 3 : 1;
+    const thinnedHist = histData.filter((_, i) => i % histStep === 0 || i === histData.length - 1);
+
+    return [...thinnedHist, ...forecastData];
+  };
+
   const renderReturnCards = (fundId: string) => {
     const rs = getReturnSummary(fundId);
     const balance = getLatestBalance(fundId);
+    const fund = funds.find(f => f.id === fundId);
+    const showForecast = fund && (fund.type === "pension" || fund.type === "child_savings" || fund.type === "hishtalmut");
+
     return (
       <div className="space-y-4">
         {/* Total balance */}
@@ -445,6 +528,9 @@ export default function PensionPage() {
             <p className="text-2xl sm:text-3xl font-bold">{fmt(balance)}</p>
           </CardContent>
         </Card>
+
+        {/* Forecast chart */}
+        {showForecast && <ForecastChart fund={fund} buildForecastData={buildForecastData} />}
 
         {/* Yields section */}
         <div>
