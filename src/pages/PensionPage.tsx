@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,8 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye } from "lucide-react";
+import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye, Wallet } from "lucide-react";
 import { toast } from "sonner";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const MONTHS = [
   "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
