@@ -249,14 +249,17 @@ export type Database = {
         Row: {
           accessible: boolean
           accumulation_fee_pct: number
+          birth_date: string | null
           created_at: string
           deposit_fee_pct: number
           employer: string
+          end_savings_age: number
           fund_name: string
           id: string
           name: string
           parent_matching: boolean
           relevant: boolean
+          retirement_age: number
           state_deposit_amount: number
           type: string
           updated_at: string
@@ -265,14 +268,17 @@ export type Database = {
         Insert: {
           accessible?: boolean
           accumulation_fee_pct?: number
+          birth_date?: string | null
           created_at?: string
           deposit_fee_pct?: number
           employer?: string
+          end_savings_age?: number
           fund_name?: string
           id?: string
           name: string
           parent_matching?: boolean
           relevant?: boolean
+          retirement_age?: number
           state_deposit_amount?: number
           type?: string
           updated_at?: string
@@ -281,14 +287,17 @@ export type Database = {
         Update: {
           accessible?: boolean
           accumulation_fee_pct?: number
+          birth_date?: string | null
           created_at?: string
           deposit_fee_pct?: number
           employer?: string
+          end_savings_age?: number
           fund_name?: string
           id?: string
           name?: string
           parent_matching?: boolean
           relevant?: boolean
+          retirement_age?: number
           state_deposit_amount?: number
           type?: string
           updated_at?: string
@@ -299,6 +308,7 @@ export type Database = {
       pension_settings: {
         Row: {
           accumulation_fee_pct: number
+          checking_balance: number
           created_at: string
           default_employer: string
           default_fund_name: string
@@ -309,6 +319,7 @@ export type Database = {
         }
         Insert: {
           accumulation_fee_pct?: number
+          checking_balance?: number
           created_at?: string
           default_employer?: string
           default_fund_name?: string
@@ -319,6 +330,7 @@ export type Database = {
         }
         Update: {
           accumulation_fee_pct?: number
+          checking_balance?: number
           created_at?: string
           default_employer?: string
           default_fund_name?: string

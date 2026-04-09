@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,8 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye } from "lucide-react";
+import { Plus, Trash2, PiggyBank, Lock, Unlock, Settings2, Baby, GraduationCap, TrendingUp, Layers, EyeOff, Eye, Wallet } from "lucide-react";
 import { toast } from "sonner";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 const MONTHS = [
   "ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
@@ -34,6 +35,9 @@ interface PensionFund {
   type: FundType;
   parent_matching: boolean;
   state_deposit_amount: number;
+  birth_date: string | null;
+  retirement_age: number;
+  end_savings_age: number;
 }
 
 interface PensionEntry {
@@ -63,6 +67,49 @@ const TAB_CONFIG: { type: FundType; label: string; icon: React.ReactNode; create
   { type: "other", label: "קרנות נוספות", icon: <Layers className="h-4 w-4" />, createLabel: "הוסף קרן" },
 ];
 
+// Forecast chart sub-component
+function ForecastChart({ fund, buildForecastData }: {
+  fund: PensionFund;
+  buildForecastData: (fund: PensionFund, scenario: "y1" | "y3" | "y5") => { label: string; balance: number; type: string }[];
+}) {
+  const [scenario, setScenario] = useState<"y1" | "y3" | "y5">("y1");
+  const data = useMemo(() => buildForecastData(fund, scenario), [fund, scenario, buildForecastData]);
+
+  if (data.length < 2) return null;
+
+  const scenarioLabels = { y1: "תשואה שנה", y3: "תשואה 3 שנים", y5: "תשואה 5 שנים" };
+
+  return (
+    <Card>
+      <CardHeader className="p-3 sm:p-4 pb-1">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <CardTitle className="text-sm sm:text-base">📊 גרף גידול ותחזית</CardTitle>
+          <div className="flex gap-1">
+            {(["y1", "y3", "y5"] as const).map(s => (
+              <Button key={s} size="sm" variant={scenario === s ? "default" : "outline"}
+                className="text-[10px] sm:text-xs px-2 py-1 h-7"
+                onClick={() => setScenario(s)}>
+                {scenarioLabels[s]}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-2 sm:p-4 pt-0">
+        <ResponsiveContainer width="100%" height={250}>
+          <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(data.length / 8))} />
+            <YAxis tickFormatter={(v: number) => `₪${(v / 1000).toFixed(0)}K`} tick={{ fontSize: 10 }} />
+            <Tooltip formatter={(v: number) => fmt(v)} />
+            <Line type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="יתרה" />
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function PensionPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -77,7 +124,10 @@ export default function PensionPage() {
   const [settingsForm, setSettingsForm] = useState({
     employer: "", fund_name: "", deposit_fee_pct: 0, accumulation_fee_pct: 0,
     parent_matching: false, state_deposit_amount: 0,
+    birth_date: "", retirement_age: 67, end_savings_age: 18,
   });
+  const [checkingBalance, setCheckingBalance] = useState(0);
+  const [editingChecking, setEditingChecking] = useState(false);
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
   const [editEntryId, setEditEntryId] = useState<string | null>(null);
   const [entryForm, setEntryForm] = useState({
@@ -103,6 +153,36 @@ export default function PensionPage() {
       if (error) throw error;
       return data as PensionEntry[];
     },
+  });
+
+  // Fetch pension settings for checking balance
+  const { data: pensionSettings } = useQuery({
+    queryKey: ["pension_settings"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("pension_settings").select("*").maybeSingle();
+      if (error) throw error;
+      if (data) setCheckingBalance(Number((data as any).checking_balance) || 0);
+      return data;
+    },
+  });
+
+  const saveCheckingBalance = useMutation({
+    mutationFn: async (val: number) => {
+      const existing = await supabase.from("pension_settings").select("id").maybeSingle();
+      if (existing.data) {
+        const { error } = await supabase.from("pension_settings").update({ checking_balance: val } as any).eq("id", existing.data.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("pension_settings").insert({ user_id: user!.id, checking_balance: val } as any);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pension_settings"] });
+      setEditingChecking(false);
+      toast.success("יתרת עו״ש נשמרה");
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const getFundsByType = (type: FundType) => funds.filter(f => f.type === type);
@@ -167,9 +247,13 @@ export default function PensionPage() {
         updatePayload.fund_name = settingsForm.fund_name;
         updatePayload.deposit_fee_pct = settingsForm.deposit_fee_pct;
         updatePayload.accumulation_fee_pct = settingsForm.accumulation_fee_pct;
+        updatePayload.birth_date = settingsForm.birth_date || null;
+        updatePayload.retirement_age = settingsForm.retirement_age;
       } else if (fund?.type === "child_savings") {
         updatePayload.parent_matching = settingsForm.parent_matching;
         updatePayload.state_deposit_amount = settingsForm.state_deposit_amount;
+        updatePayload.birth_date = settingsForm.birth_date || null;
+        updatePayload.end_savings_age = settingsForm.end_savings_age;
       }
       const { error } = await supabase.from("pension_funds").update(updatePayload).eq("id", settingsFundId);
       if (error) throw error;
@@ -270,6 +354,9 @@ export default function PensionPage() {
       accumulation_fee_pct: Number(fund.accumulation_fee_pct),
       parent_matching: fund.parent_matching,
       state_deposit_amount: Number(fund.state_deposit_amount),
+      birth_date: fund.birth_date || "",
+      retirement_age: fund.retirement_age || 67,
+      end_savings_age: fund.end_savings_age || 18,
     });
     setSettingsDialogOpen(true);
   };
@@ -381,17 +468,100 @@ export default function PensionPage() {
 
   // Only count relevant funds in totals
   const relevantFunds = funds.filter(f => f.relevant !== false);
-  const totalAccessible = relevantFunds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0);
-  const grandTotal = relevantFunds.reduce((s, f) => s + getLatestBalance(f.id), 0);
+  const totalAccessible = relevantFunds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0) + checkingBalance;
+  const grandTotal = relevantFunds.reduce((s, f) => s + getLatestBalance(f.id), 0) + checkingBalance;
   const nonChildFunds = funds.filter(f => f.type !== "child_savings");
   const childFunds = funds.filter(f => f.type === "child_savings");
 
   const currentFundType = selectedFund ? funds.find(f => f.id === selectedFund)?.type : undefined;
   const settingsFund = settingsFundId ? funds.find(f => f.id === settingsFundId) : null;
 
+  // Build forecast chart data for pension/child_savings/hishtalmut
+  const buildForecastData = (fund: PensionFund, yieldScenario: "y1" | "y3" | "y5") => {
+    const sorted = getEntriesSorted(fund.id);
+    if (sorted.length < 2) return [];
+
+    // Historical data points (monthly closing balance)
+    const histData = sorted.map(e => ({
+      label: `${MONTHS[e.month - 1]} ${e.year}`,
+      balance: Number(e.closing_balance),
+      type: "history" as const,
+    }));
+
+    // Calculate average monthly deposit from last 12 months
+    const last12 = sorted.slice(-12);
+    const avgDeposit = last12.reduce((s, e) => {
+      const dep = Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation);
+      return s + dep;
+    }, 0) / last12.length;
+
+    // Get compound annual yield and normalize to monthly
+    const rs = getReturnSummary(fund.id);
+    let annualYield = 0;
+    if (yieldScenario === "y1" && rs.y1 != null) annualYield = rs.y1;
+    else if (yieldScenario === "y3" && rs.y3 != null) annualYield = Math.pow(1 + rs.y3, 1 / 3) - 1;
+    else if (yieldScenario === "y5" && rs.y5 != null) annualYield = Math.pow(1 + rs.y5, 1 / 5) - 1;
+    const monthlyYield = Math.pow(1 + annualYield, 1 / 12) - 1;
+
+    // Determine forecast months
+    let forecastMonths = 60; // default 5 years for hishtalmut
+    if (fund.type === "pension" && fund.birth_date) {
+      const birthDate = new Date(fund.birth_date);
+      const retireAge = fund.retirement_age || 67;
+      const retireDate = new Date(birthDate.getFullYear() + retireAge, birthDate.getMonth());
+      const lastEntry = sorted[sorted.length - 1];
+      const lastDate = new Date(lastEntry.year, lastEntry.month - 1);
+      forecastMonths = Math.max(0, Math.round((retireDate.getTime() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
+    } else if (fund.type === "child_savings" && fund.birth_date) {
+      const birthDate = new Date(fund.birth_date);
+      const endAge = fund.end_savings_age || 18;
+      const endDate = new Date(birthDate.getFullYear() + endAge, birthDate.getMonth());
+      const lastEntry = sorted[sorted.length - 1];
+      const lastDate = new Date(lastEntry.year, lastEntry.month - 1);
+      forecastMonths = Math.max(0, Math.round((endDate.getTime() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
+    }
+
+    // Cap forecast to avoid too many data points
+    forecastMonths = Math.min(forecastMonths, 600);
+
+    // Build forecast (show every 12th month for long periods, every month for short)
+    const step = forecastMonths > 120 ? 12 : forecastMonths > 60 ? 6 : 1;
+    let balance = sorted.length > 0 ? Number(sorted[sorted.length - 1].closing_balance) : 0;
+    const lastEntry = sorted[sorted.length - 1];
+    let curMonth = lastEntry.month;
+    let curYear = lastEntry.year;
+
+    const forecastData: { label: string; balance: number; type: "forecast" }[] = [];
+    const depositFee = (fund.deposit_fee_pct || 0) / 100;
+    const accumFee = (fund.accumulation_fee_pct || 0) / 100 / 12;
+
+    for (let i = 1; i <= forecastMonths; i++) {
+      curMonth++;
+      if (curMonth > 12) { curMonth = 1; curYear++; }
+      const fees = avgDeposit * depositFee + balance * accumFee;
+      balance = balance * (1 + monthlyYield) + avgDeposit - fees;
+      if (i % step === 0 || i === forecastMonths) {
+        forecastData.push({
+          label: `${MONTHS[curMonth - 1]} ${curYear}`,
+          balance: Math.round(balance),
+          type: "forecast",
+        });
+      }
+    }
+
+    // Thin out historical data for display (show every Nth for long histories)
+    const histStep = histData.length > 60 ? 12 : histData.length > 24 ? 3 : 1;
+    const thinnedHist = histData.filter((_, i) => i % histStep === 0 || i === histData.length - 1);
+
+    return [...thinnedHist, ...forecastData];
+  };
+
   const renderReturnCards = (fundId: string) => {
     const rs = getReturnSummary(fundId);
     const balance = getLatestBalance(fundId);
+    const fund = funds.find(f => f.id === fundId);
+    const showForecast = fund && (fund.type === "pension" || fund.type === "child_savings" || fund.type === "hishtalmut");
+
     return (
       <div className="space-y-4">
         {/* Total balance */}
@@ -401,6 +571,9 @@ export default function PensionPage() {
             <p className="text-2xl sm:text-3xl font-bold">{fmt(balance)}</p>
           </CardContent>
         </Card>
+
+        {/* Forecast chart */}
+        {showForecast && <ForecastChart fund={fund} buildForecastData={buildForecastData} />}
 
         {/* Yields section */}
         <div>
@@ -457,6 +630,7 @@ export default function PensionPage() {
 
   const renderFundContent = (fund: PensionFund) => {
     const fundEntries = getEntriesSorted(fund.id);
+    const displayEntries = [...fundEntries].reverse();
     const showSettings = fund.type !== "self_trading" && fund.type !== "other";
     const isDividend = isDividendFund(fund);
 
@@ -517,8 +691,10 @@ export default function PensionPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  fundEntries.map((entry, idx) => {
-                    const prevBalance = idx === 0 ? 0 : Number(fundEntries[idx - 1].closing_balance);
+                  displayEntries.map((entry) => {
+                    // Find original index in chronological order for prev balance
+                    const chronIdx = fundEntries.indexOf(entry);
+                    const prevBalance = chronIdx === 0 ? 0 : Number(fundEntries[chronIdx - 1].closing_balance);
                     let totalDeposit: number;
                     if (fund.type === "child_savings") {
                       totalDeposit = Number(entry.employee_contribution) + Number(entry.employer_contribution);
@@ -771,6 +947,16 @@ export default function PensionPage() {
               <Input type="number" step="0.01" value={settingsForm.accumulation_fee_pct} onChange={(e) => setSettingsForm({ ...settingsForm, accumulation_fee_pct: Number(e.target.value) })} />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>תאריך לידה</Label>
+              <Input type="date" value={settingsForm.birth_date} onChange={(e) => setSettingsForm({ ...settingsForm, birth_date: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>גיל פרישה</Label>
+              <Input type="number" value={settingsForm.retirement_age} onChange={(e) => setSettingsForm({ ...settingsForm, retirement_age: Number(e.target.value) })} />
+            </div>
+          </div>
         </div>
       );
     }
@@ -785,6 +971,16 @@ export default function PensionPage() {
           <div className="flex items-center gap-3">
             <Switch checked={settingsForm.parent_matching} onCheckedChange={(v) => setSettingsForm({ ...settingsForm, parent_matching: v })} />
             <Label>הכפלת הורים</Label>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>תאריך לידה של הילד</Label>
+              <Input type="date" value={settingsForm.birth_date} onChange={(e) => setSettingsForm({ ...settingsForm, birth_date: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>גיל סיום חיסכון</Label>
+              <Input type="number" value={settingsForm.end_savings_age} onChange={(e) => setSettingsForm({ ...settingsForm, end_savings_age: Number(e.target.value) })} />
+            </div>
           </div>
         </div>
       );
@@ -811,6 +1007,29 @@ export default function PensionPage() {
 
         {/* Summary Tab */}
         <TabsContent value="summary" className="space-y-4 sm:space-y-6">
+          {/* Checking account balance */}
+          <Card className="border-dashed">
+            <CardContent className="p-3 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">יתרת עו״ש</span>
+              </div>
+              {editingChecking ? (
+                <div className="flex items-center gap-2">
+                  <Input type="number" className="w-32 h-8 text-sm" value={checkingBalance}
+                    onChange={(e) => setCheckingBalance(Number(e.target.value))} />
+                  <Button size="sm" className="h-8" onClick={() => saveCheckingBalance.mutate(checkingBalance)}>שמור</Button>
+                  <Button size="sm" variant="outline" className="h-8" onClick={() => setEditingChecking(false)}>ביטול</Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 cursor-pointer" onClick={() => setEditingChecking(true)}>
+                  <span className="text-lg font-bold">{fmt(checkingBalance)}</span>
+                  <span className="text-xs text-muted-foreground">(לחץ לעריכה)</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             <Card>
               <CardHeader className="pb-2 p-3 sm:p-6 sm:pb-2">
@@ -856,7 +1075,7 @@ export default function PensionPage() {
                       const typeLabel = TAB_CONFIG.find(t => t.type === fund.type)?.label || fund.type;
                       const isRelevant = fund.relevant !== false;
                       return (
-                        <TableRow key={fund.id} className={!isRelevant ? "opacity-50" : ""}>
+                        <TableRow key={fund.id}>
                           <TableCell className="text-right font-medium text-xs sm:text-sm">{fund.name}</TableCell>
                           <TableCell className="text-right text-xs sm:text-sm text-muted-foreground hidden sm:table-cell">{typeLabel}</TableCell>
                           <TableCell className="text-right text-xs sm:text-sm">{fmt(getLatestBalance(fund.id))}</TableCell>
@@ -894,7 +1113,7 @@ export default function PensionPage() {
                   {childFunds.map(fund => {
                     const isRelevant = fund.relevant !== false;
                     return (
-                      <Card key={fund.id} className={`bg-muted/30 border ${!isRelevant ? "opacity-50" : ""}`}>
+                      <Card key={fund.id} className="bg-muted/30 border">
                         <CardContent className="p-3 sm:p-4 text-center space-y-2">
                           <p className="text-xs sm:text-sm font-medium text-muted-foreground">{fund.name}</p>
                           <p className="text-lg sm:text-2xl font-bold">{fmt(getLatestBalance(fund.id))}</p>
