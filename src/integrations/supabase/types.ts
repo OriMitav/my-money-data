@@ -256,6 +256,7 @@ export type Database = {
           id: string
           name: string
           parent_matching: boolean
+          relevant: boolean
           state_deposit_amount: number
           type: string
           updated_at: string
@@ -271,6 +272,7 @@ export type Database = {
           id?: string
           name: string
           parent_matching?: boolean
+          relevant?: boolean
           state_deposit_amount?: number
           type?: string
           updated_at?: string
@@ -286,6 +288,7 @@ export type Database = {
           id?: string
           name?: string
           parent_matching?: boolean
+          relevant?: boolean
           state_deposit_amount?: number
           type?: string
           updated_at?: string
