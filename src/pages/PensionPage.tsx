@@ -359,25 +359,6 @@ export default function PensionPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-    mutationFn: async () => {
-      const { error } = await supabase.from("debts").insert({
-        user_id: user!.id,
-        name: debtForm.name,
-        total_amount: debtForm.total_amount,
-        debtor_name: debtForm.debtor_name,
-        is_zero_interest: debtForm.is_zero_interest,
-        fixed_payment_amount: debtForm.fixed_payment_amount,
-      } as any);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["debts"] });
-      setDebtDialogOpen(false);
-      setEditDebtId(null);
-      toast.success("חוב נוסף");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
 
   const openFundSettings = (fund: PensionFund) => {
     setSettingsFundId(fund.id);
@@ -1236,8 +1217,6 @@ export default function PensionPage() {
                 {t.icon} <span className="hidden sm:inline">{t.label}</span><span className="sm:hidden">{t.label.split(" ")[0]}</span>
               </TabsTrigger>
             ))}
-              <CreditCard className="h-4 w-4" /> <span className="hidden sm:inline">חובות</span><span className="sm:hidden">חובות</span>
-            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -1530,9 +1509,6 @@ export default function PensionPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Create/Edit Debt Dialog */}
-
-      {/* Add/Edit Debt Entry Dialog */}
     </div>
   );
 }
