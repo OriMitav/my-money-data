@@ -1113,7 +1113,7 @@ export default function PensionPage() {
                   {childFunds.map(fund => {
                     const isRelevant = fund.relevant !== false;
                     return (
-                      <Card key={fund.id} className={`bg-muted/30 border ${!isRelevant ? "opacity-50" : ""}`}>
+                      <Card key={fund.id} className="bg-muted/30 border">
                         <CardContent className="p-3 sm:p-4 text-center space-y-2">
                           <p className="text-xs sm:text-sm font-medium text-muted-foreground">{fund.name}</p>
                           <p className="text-lg sm:text-2xl font-bold">{fmt(getLatestBalance(fund.id))}</p>
