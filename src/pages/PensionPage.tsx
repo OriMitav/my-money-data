@@ -172,14 +172,6 @@ export default function PensionPage() {
     management_fees: 0,
   });
 
-  // Debts state
-  const [debtDialogOpen, setDebtDialogOpen] = useState(false);
-  const [editDebtId, setEditDebtId] = useState<string | null>(null);
-  const [debtForm, setDebtForm] = useState({ name: "", total_amount: 0, debtor_name: "", is_zero_interest: false, fixed_payment_amount: 0 });
-  const [selectedDebt, setSelectedDebt] = useState<string | null>(null);
-  const [debtEntryDialogOpen, setDebtEntryDialogOpen] = useState(false);
-  const [editDebtEntryId, setEditDebtEntryId] = useState<string | null>(null);
-  const [debtEntryForm, setDebtEntryForm] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() + 1, interest_paid: 0, total_paid: 0, remaining_balance: 0 });
 
   const { data: funds = [] } = useQuery({
     queryKey: ["pension_funds"],
@@ -209,24 +201,6 @@ export default function PensionPage() {
     },
   });
 
-  // Debts queries
-  const { data: debts = [] } = useQuery({
-    queryKey: ["debts"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("debts").select("*").order("created_at");
-      if (error) throw error;
-      return data as unknown as Debt[];
-    },
-  });
-
-  const { data: debtEntries = [] } = useQuery({
-    queryKey: ["debt_entries"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("debt_entries").select("*").order("year").order("month");
-      if (error) throw error;
-      return data as unknown as DebtEntry[];
-    },
-  });
 
   const saveCheckingBalance = useMutation({
     mutationFn: async (val: number) => {
