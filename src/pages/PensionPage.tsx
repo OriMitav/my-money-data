@@ -112,6 +112,36 @@ export default function PensionPage() {
     },
   });
 
+  // Fetch pension settings for checking balance
+  const { data: pensionSettings } = useQuery({
+    queryKey: ["pension_settings"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("pension_settings").select("*").maybeSingle();
+      if (error) throw error;
+      if (data) setCheckingBalance(Number((data as any).checking_balance) || 0);
+      return data;
+    },
+  });
+
+  const saveCheckingBalance = useMutation({
+    mutationFn: async (val: number) => {
+      const existing = await supabase.from("pension_settings").select("id").maybeSingle();
+      if (existing.data) {
+        const { error } = await supabase.from("pension_settings").update({ checking_balance: val } as any).eq("id", existing.data.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("pension_settings").insert({ user_id: user!.id, checking_balance: val } as any);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pension_settings"] });
+      setEditingChecking(false);
+      toast.success("יתרת עו״ש נשמרה");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const getFundsByType = (type: FundType) => funds.filter(f => f.type === type);
   const isDividendFund = (fund: PensionFund) => fund.type === "self_trading" && fund.fund_name === "dividend";
 
