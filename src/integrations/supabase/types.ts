@@ -430,6 +430,104 @@ export type Database = {
         }
         Relationships: []
       }
+      properties: {
+        Row: {
+          apify_actor_rent_id: string
+          apify_actor_sale_id: string
+          apify_token: string
+          city: string
+          created_at: string
+          house_number: string
+          id: string
+          purchase_price: number
+          street: string
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          apify_actor_rent_id?: string
+          apify_actor_sale_id?: string
+          apify_token?: string
+          city?: string
+          created_at?: string
+          house_number?: string
+          id?: string
+          purchase_price?: number
+          street?: string
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          apify_actor_rent_id?: string
+          apify_actor_sale_id?: string
+          apify_token?: string
+          city?: string
+          created_at?: string
+          house_number?: string
+          id?: string
+          purchase_price?: number
+          street?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      property_snapshots: {
+        Row: {
+          avg_price: number
+          created_at: string
+          id: string
+          month: number
+          property_id: string
+          raw_data: Json
+          sample_size: number
+          std_deviation: number
+          type: string
+          updated_at: string
+          user_id: string
+          year: number
+        }
+        Insert: {
+          avg_price?: number
+          created_at?: string
+          id?: string
+          month: number
+          property_id: string
+          raw_data?: Json
+          sample_size?: number
+          std_deviation?: number
+          type?: string
+          updated_at?: string
+          user_id: string
+          year: number
+        }
+        Update: {
+          avg_price?: number
+          created_at?: string
+          id?: string
+          month?: number
+          property_id?: string
+          raw_data?: Json
+          sample_size?: number
+          std_deviation?: number
+          type?: string
+          updated_at?: string
+          user_id?: string
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_snapshots_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       recipient_mappings: {
         Row: {
           created_at: string
