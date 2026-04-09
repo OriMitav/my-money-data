@@ -67,6 +67,49 @@ const TAB_CONFIG: { type: FundType; label: string; icon: React.ReactNode; create
   { type: "other", label: "קרנות נוספות", icon: <Layers className="h-4 w-4" />, createLabel: "הוסף קרן" },
 ];
 
+// Forecast chart sub-component
+function ForecastChart({ fund, buildForecastData }: {
+  fund: PensionFund;
+  buildForecastData: (fund: PensionFund, scenario: "y1" | "y3" | "y5") => { label: string; balance: number; type: string }[];
+}) {
+  const [scenario, setScenario] = useState<"y1" | "y3" | "y5">("y1");
+  const data = useMemo(() => buildForecastData(fund, scenario), [fund, scenario, buildForecastData]);
+
+  if (data.length < 2) return null;
+
+  const scenarioLabels = { y1: "תשואה שנה", y3: "תשואה 3 שנים", y5: "תשואה 5 שנים" };
+
+  return (
+    <Card>
+      <CardHeader className="p-3 sm:p-4 pb-1">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <CardTitle className="text-sm sm:text-base">📊 גרף גידול ותחזית</CardTitle>
+          <div className="flex gap-1">
+            {(["y1", "y3", "y5"] as const).map(s => (
+              <Button key={s} size="sm" variant={scenario === s ? "default" : "outline"}
+                className="text-[10px] sm:text-xs px-2 py-1 h-7"
+                onClick={() => setScenario(s)}>
+                {scenarioLabels[s]}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-2 sm:p-4 pt-0">
+        <ResponsiveContainer width="100%" height={250}>
+          <LineChart data={data} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={Math.max(0, Math.floor(data.length / 8))} />
+            <YAxis tickFormatter={(v: number) => `₪${(v / 1000).toFixed(0)}K`} tick={{ fontSize: 10 }} />
+            <Tooltip formatter={(v: number) => fmt(v)} />
+            <Line type="monotone" dataKey="balance" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="יתרה" />
+          </LineChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function PensionPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
