@@ -425,8 +425,8 @@ export default function PensionPage() {
 
   // Only count relevant funds in totals
   const relevantFunds = funds.filter(f => f.relevant !== false);
-  const totalAccessible = relevantFunds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0);
-  const grandTotal = relevantFunds.reduce((s, f) => s + getLatestBalance(f.id), 0);
+  const totalAccessible = relevantFunds.filter(f => f.accessible).reduce((s, f) => s + getLatestBalance(f.id), 0) + checkingBalance;
+  const grandTotal = relevantFunds.reduce((s, f) => s + getLatestBalance(f.id), 0) + checkingBalance;
   const nonChildFunds = funds.filter(f => f.type !== "child_savings");
   const childFunds = funds.filter(f => f.type === "child_savings");
 
