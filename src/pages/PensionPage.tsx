@@ -947,6 +947,16 @@ export default function PensionPage() {
               <Input type="number" step="0.01" value={settingsForm.accumulation_fee_pct} onChange={(e) => setSettingsForm({ ...settingsForm, accumulation_fee_pct: Number(e.target.value) })} />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>תאריך לידה</Label>
+              <Input type="date" value={settingsForm.birth_date} onChange={(e) => setSettingsForm({ ...settingsForm, birth_date: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>גיל פרישה</Label>
+              <Input type="number" value={settingsForm.retirement_age} onChange={(e) => setSettingsForm({ ...settingsForm, retirement_age: Number(e.target.value) })} />
+            </div>
+          </div>
         </div>
       );
     }
@@ -961,6 +971,16 @@ export default function PensionPage() {
           <div className="flex items-center gap-3">
             <Switch checked={settingsForm.parent_matching} onCheckedChange={(v) => setSettingsForm({ ...settingsForm, parent_matching: v })} />
             <Label>הכפלת הורים</Label>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>תאריך לידה של הילד</Label>
+              <Input type="date" value={settingsForm.birth_date} onChange={(e) => setSettingsForm({ ...settingsForm, birth_date: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <Label>גיל סיום חיסכון</Label>
+              <Input type="number" value={settingsForm.end_savings_age} onChange={(e) => setSettingsForm({ ...settingsForm, end_savings_age: Number(e.target.value) })} />
+            </div>
           </div>
         </div>
       );
