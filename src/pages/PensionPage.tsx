@@ -277,6 +277,9 @@ export default function PensionPage() {
       accumulation_fee_pct: Number(fund.accumulation_fee_pct),
       parent_matching: fund.parent_matching,
       state_deposit_amount: Number(fund.state_deposit_amount),
+      birth_date: fund.birth_date || "",
+      retirement_age: fund.retirement_age || 67,
+      end_savings_age: fund.end_savings_age || 18,
     });
     setSettingsDialogOpen(true);
   };
