@@ -137,6 +137,17 @@ export default function IncomeTaxPage() {
   const totalTax = entries.reduce((s, e) => s + Number(e.source1_tax) + Number(e.source2_tax) + Number(e.source3_tax), 0);
   const totalSocial = entries.reduce((s, e) => s + Number(e.source1_social) + Number(e.source2_social) + Number(e.source3_social), 0);
 
+  // Per-earner totals
+  const earnerTotals = earners.map((earner) => {
+    const earnerEntries = entries.filter((e) => e.earner_id === earner.id);
+    return {
+      name: earner.name,
+      gross: earnerEntries.reduce((s, e) => s + Number(e.source1_gross) + Number(e.source2_gross) + Number(e.source3_gross), 0),
+      tax: earnerEntries.reduce((s, e) => s + Number(e.source1_tax) + Number(e.source2_tax) + Number(e.source3_tax), 0),
+      social: earnerEntries.reduce((s, e) => s + Number(e.source1_social) + Number(e.source2_social) + Number(e.source3_social), 0),
+    };
+  });
+
   const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
 
   const openNewEntry = (earnerId: string) => {
@@ -165,7 +176,7 @@ export default function IncomeTaxPage() {
     <div className="max-w-6xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold tracking-tight">הכנסות ומיסוי</h1>
 
-      {/* Global Summary Cards */}
+      {/* Overall Summary with per-earner breakdown */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -173,6 +184,14 @@ export default function IncomeTaxPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{fmt(totalGross)}</p>
+            <div className="mt-2 space-y-1">
+              {earnerTotals.map((et) => (
+                <div key={et.name} className="flex justify-between text-xs text-muted-foreground">
+                  <span>{et.name}</span>
+                  <span>{fmt(et.gross)}</span>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -181,6 +200,14 @@ export default function IncomeTaxPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-destructive">{fmt(totalTax)}</p>
+            <div className="mt-2 space-y-1">
+              {earnerTotals.map((et) => (
+                <div key={et.name} className="flex justify-between text-xs text-muted-foreground">
+                  <span>{et.name}</span>
+                  <span>{fmt(et.tax)}</span>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
         <Card>
@@ -189,6 +216,14 @@ export default function IncomeTaxPage() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold text-destructive">{fmt(totalSocial)}</p>
+            <div className="mt-2 space-y-1">
+              {earnerTotals.map((et) => (
+                <div key={et.name} className="flex justify-between text-xs text-muted-foreground">
+                  <span>{et.name}</span>
+                  <span>{fmt(et.social)}</span>
+                </div>
+              ))}
+            </div>
           </CardContent>
         </Card>
       </div>
