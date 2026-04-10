@@ -176,7 +176,7 @@ export default function IncomeTaxPage() {
     <div className="max-w-6xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold tracking-tight">הכנסות ומיסוי</h1>
 
-      {/* Overall Summary */}
+      {/* Overall Summary with per-earner breakdown */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="pb-2">
@@ -227,6 +227,196 @@ export default function IncomeTaxPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Earner Tabs */}
+      <div className="flex items-center gap-2 mb-2">
+        <Button size="sm" onClick={() => setEarnerDialogOpen(true)}>
+          <Plus className="ml-1 h-4 w-4" /> הוסף מפרנס
+        </Button>
+      </div>
+
+      {earners.length === 0 ? (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <DollarSign className="mx-auto h-12 w-12 text-muted-foreground/40 mb-4" />
+            <h3 className="font-semibold text-lg mb-1">אין מפרנסים עדיין</h3>
+            <p className="text-muted-foreground text-sm">הוסף מפרנס כדי להתחיל להזין נתוני הכנסות</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Tabs value={activeTab} onValueChange={setSelectedEarner} dir="rtl">
+          <TabsList className="flex-wrap h-auto">
+            {earners.map((e) => (
+              <TabsTrigger key={e.id} value={e.id}>{e.name}</TabsTrigger>
+            ))}
+          </TabsList>
+
+          {earners.map((earner) => {
+            const earnerEntries = entries.filter((e) => e.earner_id === earner.id);
+            const earnerGross = earnerEntries.reduce((s, e) => s + Number(e.source1_gross) + Number(e.source2_gross) + Number(e.source3_gross), 0);
+            const earnerTax = earnerEntries.reduce((s, e) => s + Number(e.source1_tax) + Number(e.source2_tax) + Number(e.source3_tax), 0);
+            const earnerSocial = earnerEntries.reduce((s, e) => s + Number(e.source1_social) + Number(e.source2_social) + Number(e.source3_social), 0);
+
+            return (
+              <TabsContent key={earner.id} value={earner.id} className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">{earner.name}</h2>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => openNewEntry(earner.id)}>
+                      <Plus className="ml-1 h-4 w-4" /> הוסף חודש
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => deleteEarner.mutate(earner.id)}>
+                      <Trash2 className="ml-1 h-4 w-4" /> מחק מפרנס
+                    </Button>
+                  </div>
+                </div>
+
+                <Card>
+                  <CardContent className="p-0 overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead rowSpan={2} className="border-l align-middle">חודש</TableHead>
+                          <TableHead colSpan={4} className="text-center border-l">מקור 1</TableHead>
+                          <TableHead colSpan={4} className="text-center border-l">מקור 2</TableHead>
+                          <TableHead colSpan={4} className="text-center border-l">מקור 3</TableHead>
+                          <TableHead rowSpan={2} className="align-middle w-16">פעולות</TableHead>
+                        </TableRow>
+                        <TableRow>
+                          <TableHead className="text-xs">מעסיק</TableHead>
+                          <TableHead className="text-xs">ברוטו</TableHead>
+                          <TableHead className="text-xs">מס הכנסה</TableHead>
+                          <TableHead className="text-xs border-l">ביטוח לאומי</TableHead>
+                          <TableHead className="text-xs">מעסיק</TableHead>
+                          <TableHead className="text-xs">ברוטו</TableHead>
+                          <TableHead className="text-xs">מס הכנסה</TableHead>
+                          <TableHead className="text-xs border-l">ביטוח לאומי</TableHead>
+                          <TableHead className="text-xs">מעסיק</TableHead>
+                          <TableHead className="text-xs">ברוטו</TableHead>
+                          <TableHead className="text-xs">מס הכנסה</TableHead>
+                          <TableHead className="text-xs border-l">ביטוח לאומי</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {earnerEntries.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={14} className="text-center text-muted-foreground py-8">
+                              אין נתונים עדיין. לחץ "הוסף חודש" כדי להתחיל.
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          <>
+                            {earnerEntries.map((entry) => (
+                              <TableRow key={entry.id} className="cursor-pointer hover:bg-muted/50" onClick={() => openEditEntry(entry)}>
+                                <TableCell className="border-l font-medium whitespace-nowrap">
+                                  {MONTHS[entry.month - 1]} {entry.year}
+                                </TableCell>
+                                <TableCell className="text-xs">{entry.source1_employer || "-"}</TableCell>
+                                <TableCell className="text-xs">{fmt(Number(entry.source1_gross))}</TableCell>
+                                <TableCell className="text-xs">{fmt(Number(entry.source1_tax))}</TableCell>
+                                <TableCell className="text-xs border-l">{fmt(Number(entry.source1_social))}</TableCell>
+                                <TableCell className="text-xs">{entry.source2_employer || "-"}</TableCell>
+                                <TableCell className="text-xs">{fmt(Number(entry.source2_gross))}</TableCell>
+                                <TableCell className="text-xs">{fmt(Number(entry.source2_tax))}</TableCell>
+                                <TableCell className="text-xs border-l">{fmt(Number(entry.source2_social))}</TableCell>
+                                <TableCell className="text-xs">{entry.source3_employer || "-"}</TableCell>
+                                <TableCell className="text-xs">{fmt(Number(entry.source3_gross))}</TableCell>
+                                <TableCell className="text-xs">{fmt(Number(entry.source3_tax))}</TableCell>
+                                <TableCell className="text-xs border-l">{fmt(Number(entry.source3_social))}</TableCell>
+                                <TableCell>
+                                  <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); deleteEntry.mutate(entry.id); }}>
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                            <TableRow className="bg-muted/30 font-semibold">
+                              <TableCell className="border-l">סה״כ</TableCell>
+                              <TableCell colSpan={4} className="text-center border-l">
+                                ברוטו: {fmt(earnerGross)} | מס: {fmt(earnerTax)} | ביטוח: {fmt(earnerSocial)}
+                              </TableCell>
+                              <TableCell colSpan={8}></TableCell>
+                              <TableCell></TableCell>
+                            </TableRow>
+                          </>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            );
+          })}
+        </Tabs>
+      )}
+
+      {/* Add Earner Dialog */}
+      <Dialog open={earnerDialogOpen} onOpenChange={setEarnerDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader><DialogTitle>הוסף מפרנס</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>שם המפרנס</Label>
+              <Input value={newEarnerName} onChange={(e) => setNewEarnerName(e.target.value)} placeholder="לדוגמה: אבא" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEarnerDialogOpen(false)}>ביטול</Button>
+            <Button onClick={() => { if (newEarnerName.trim()) createEarner.mutate(newEarnerName.trim()); }} disabled={createEarner.isPending}>צור</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add/Edit Entry Dialog */}
+      <Dialog open={entryDialogOpen} onOpenChange={setEntryDialogOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{editEntryId ? "עריכת נתוני חודש" : "הוסף נתוני חודש"}</DialogTitle></DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>שנה</Label>
+                <Input type="number" value={entryForm.year} onChange={(e) => setEntryForm({ ...entryForm, year: Number(e.target.value) })} />
+              </div>
+              <div className="space-y-2">
+                <Label>חודש</Label>
+                <Select value={String(entryForm.month)} onValueChange={(v) => setEntryForm({ ...entryForm, month: Number(v) })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {MONTHS.map((m, i) => (
+                      <SelectItem key={i} value={String(i + 1)}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {[
+              { label: "מקור הכנסה 1", eKey: "s1e" as const, gKey: "s1g" as const, tKey: "s1t" as const, sKey: "s1s" as const },
+              { label: "מקור הכנסה 2", eKey: "s2e" as const, gKey: "s2g" as const, tKey: "s2t" as const, sKey: "s2s" as const },
+              { label: "מקור הכנסה 3", eKey: "s3e" as const, gKey: "s3g" as const, tKey: "s3t" as const, sKey: "s3s" as const },
+            ].map((src) => (
+              <div key={src.label} className="space-y-3">
+                <Label className="font-semibold">{src.label}</Label>
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">שם מעסיק</Label>
+                    <Input value={entryForm[src.eKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.eKey]: e.target.value })} placeholder="לדוגמה: חברה בע״מ" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">ברוטו</Label>
+                      <Input type="number" value={entryForm[src.gKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.gKey]: Number(e.target.value) })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">מס הכנסה</Label>
+                      <Input type="number" value={entryForm[src.tKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.tKey]: Number(e.target.value) })} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">ביטוח לאומי</Label>
+                      <Input type="number" value={entryForm[src.sKey] || ""} onChange={(e) => setEntryForm({ ...entryForm, [src.sKey]: Number(e.target.value) })} />
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
