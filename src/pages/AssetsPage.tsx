@@ -29,8 +29,8 @@ interface Property {
   apify_token: string;
   apify_actor_sale_id: string;
   apify_actor_rent_id: string;
-  apify_rent_input: Record<string, unknown>;
-  apify_sale_input: Record<string, unknown>;
+  apify_rent_input: Record<string, any>;
+  apify_sale_input: Record<string, any>;
 }
 
 interface Snapshot {
