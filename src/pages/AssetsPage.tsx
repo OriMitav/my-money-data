@@ -540,10 +540,10 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
         const intensity = hood ? hood.count / maxCount : 0;
         return {
           fillColor: hood
-            ? `hsl(20, 90%, ${55 - intensity * 25}%)`
-            : "hsl(0, 0%, 85%)",
-          fillOpacity: hood ? 0.5 + intensity * 0.4 : 0.15,
-          color: hood ? "#c44" : "#999",
+            ? `hsl(210, 80%, ${55 - intensity * 20}%)`
+            : "hsl(210, 20%, 85%)",
+          fillOpacity: hood ? 0.2 + intensity * 0.2 : 0.1,
+          color: hood ? "hsl(210, 70%, 45%)" : "#aab",
           weight: hood ? 2 : 1,
         };
       },
