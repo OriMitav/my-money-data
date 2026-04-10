@@ -45,8 +45,15 @@ Deno.serve(async (req) => {
       return respond({ ok: false, error: "Missing required fields" }, 400);
     }
 
-    // Use the actor_input as-is — this is what the user configured in the UI
-    const actorInput = actor_input && typeof actor_input === "object" ? actor_input : {};
+    // Normalize actor input: ensure city is string, add dealType based on type
+    const rawInput = actor_input && typeof actor_input === "object" ? { ...actor_input } : {};
+    if (rawInput.city !== undefined) {
+      rawInput.city = String(rawInput.city);
+    }
+    if (type === "rent") {
+      rawInput.dealType = "rent";
+    }
+    const actorInput = rawInput;
 
     const startUrl = `https://api.apify.com/v2/acts/${actor_id}/runs?token=${apify_token}`;
     console.log("Apify actor input:", JSON.stringify(actorInput));
