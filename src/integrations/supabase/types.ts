@@ -372,6 +372,7 @@ export type Database = {
           life_expectancy_age: number
           name: string
           parent_matching: boolean
+          photo_url: string
           relevant: boolean
           retirement_age: number
           state_deposit_amount: number
@@ -392,6 +393,7 @@ export type Database = {
           life_expectancy_age?: number
           name: string
           parent_matching?: boolean
+          photo_url?: string
           relevant?: boolean
           retirement_age?: number
           state_deposit_amount?: number
@@ -412,6 +414,7 @@ export type Database = {
           life_expectancy_age?: number
           name?: string
           parent_matching?: boolean
+          photo_url?: string
           relevant?: boolean
           retirement_age?: number
           state_deposit_amount?: number
