@@ -14,7 +14,7 @@ import { Plus, Building2, Settings2, Home, Loader2, RefreshCw, ArrowLeft, Eye, A
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
@@ -454,6 +454,9 @@ const NEIGHBOURHOOD_COORDS: Record<string, [number, number]> = {
 const MODIIN_CENTER: [number, number] = [31.897, 35.010];
 
 function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const leafletMap = useRef<L.Map | null>(null);
+
   const data = useMemo(() => {
     const latest = snapshots.length > 0 ? snapshots[0] : null;
     if (!latest || !Array.isArray(latest.raw_data) || latest.raw_data.length === 0) return [];
@@ -470,7 +473,6 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
       .map(([name, v]) => {
         let coords = NEIGHBOURHOOD_COORDS[name];
         if (!coords) {
-          // Spread unknown neighbourhoods around center
           const angle = (unknownIdx * 137.5 * Math.PI) / 180;
           const r = 0.003 + unknownIdx * 0.001;
           coords = [MODIIN_CENTER[0] + r * Math.cos(angle), MODIIN_CENTER[1] + r * Math.sin(angle)];
@@ -487,52 +489,56 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
       .sort((a, b) => b.count - a.count);
   }, [snapshots]);
 
+  useEffect(() => {
+    if (!mapRef.current || data.length === 0) return;
+    if (leafletMap.current) {
+      leafletMap.current.remove();
+      leafletMap.current = null;
+    }
+
+    const map = L.map(mapRef.current).setView(MODIIN_CENTER, 13);
+    leafletMap.current = map;
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+
+    const maxCount = Math.max(...data.map(d => d.count));
+
+    data.forEach(d => {
+      const intensity = d.count / maxCount;
+      const radius = Math.max(12, intensity * 35);
+      L.circleMarker(d.coords as [number, number], {
+        radius,
+        fillColor: `hsl(20, 90%, ${55 - intensity * 25}%)`,
+        fillOpacity: 0.7 + intensity * 0.3,
+        color: "#c44",
+        weight: 1.5,
+      })
+        .bindPopup(
+          `<div dir="rtl" style="text-align:right;min-width:140px">
+            <div style="font-weight:bold;margin-bottom:4px">${d.name}</div>
+            <div>יחידות: <strong>${d.count}</strong></div>
+            <div>מחיר ממוצע: <strong>${fmt(d.avgPrice)}</strong></div>
+            <div>שטח ממוצע: <strong>${d.avgArea} מ״ר</strong></div>
+          </div>`
+        )
+        .addTo(map);
+    });
+
+    return () => {
+      map.remove();
+      leafletMap.current = null;
+    };
+  }, [data]);
+
   if (data.length === 0) return null;
-  const maxCount = Math.max(...data.map(d => d.count));
 
   return (
     <Card>
       <CardHeader className="pb-2"><CardTitle className="text-base">התפלגות לפי שכונות</CardTitle></CardHeader>
       <CardContent>
-        <div className="h-[400px] rounded-lg overflow-hidden" dir="ltr">
-          <MapContainer
-            center={MODIIN_CENTER}
-            zoom={13}
-            style={{ height: "100%", width: "100%" }}
-            scrollWheelZoom={true}
-          >
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            {data.map(d => {
-              const intensity = d.count / maxCount;
-              const radius = Math.max(12, intensity * 35);
-              return (
-                <CircleMarker
-                  key={d.name}
-                  center={d.coords as [number, number]}
-                  radius={radius}
-                  pathOptions={{
-                    fillColor: `hsl(20, 90%, ${55 - intensity * 25}%)`,
-                    fillOpacity: 0.7 + intensity * 0.3,
-                    color: "#c44",
-                    weight: 1.5,
-                  }}
-                >
-                  <Popup>
-                    <div className="text-right" dir="rtl" style={{ minWidth: 140 }}>
-                      <div className="font-bold text-sm mb-1">{d.name}</div>
-                      <div className="text-xs">יחידות: <strong>{d.count}</strong></div>
-                      <div className="text-xs">מחיר ממוצע: <strong>{fmt(d.avgPrice)}</strong></div>
-                      <div className="text-xs">שטח ממוצע: <strong>{d.avgArea} מ״ר</strong></div>
-                    </div>
-                  </Popup>
-                </CircleMarker>
-              );
-            })}
-          </MapContainer>
-        </div>
+        <div ref={mapRef} className="h-[400px] rounded-lg overflow-hidden" dir="ltr" />
       </CardContent>
     </Card>
   );
