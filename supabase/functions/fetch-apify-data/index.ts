@@ -139,6 +139,10 @@ Deno.serve(async (req) => {
     }
 
     const items: any[] = await itemsRes.json();
+    if (items.length > 0) {
+      console.log("Sample Apify item keys:", JSON.stringify(Object.keys(items[0])));
+      console.log("Sample Apify item:", JSON.stringify(items[0]));
+    }
     const prices = items.map((i: any) => Number(i.price)).filter((p: number) => !Number.isNaN(p) && p > 0);
     const sampleSize = prices.length;
     const avgPrice = sampleSize > 0 ? prices.reduce((a, b) => a + b, 0) / sampleSize : 0;
