@@ -52,6 +52,8 @@ Deno.serve(async (req) => {
     }
     if (type === "rent") {
       rawInput.dealType = "rent";
+    } else if (type === "sale") {
+      rawInput.dealType = "buy";
     }
     const actorInput = rawInput;
 
