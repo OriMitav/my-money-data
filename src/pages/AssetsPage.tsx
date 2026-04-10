@@ -121,6 +121,8 @@ export default function AssetsPage() {
           year: now.getFullYear(),
           month: now.getMonth() + 1,
           city: property.city,
+          street: property.street,
+          house_number: property.house_number,
         },
       });
       if (res.error) throw res.error;
