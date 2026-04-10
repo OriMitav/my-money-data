@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import EntitiesPage from "@/pages/EntitiesPage";
 import CategoriesPage from "@/pages/CategoriesPage";
+import GeoJsonSettings from "@/components/GeoJsonSettings";
 
 export default function SettingsPage() {
   const [tab, setTab] = useState("entities");
@@ -16,12 +17,16 @@ export default function SettingsPage() {
         <TabsList>
           <TabsTrigger value="entities">ישויות פיננסיות</TabsTrigger>
           <TabsTrigger value="categories">קטגוריות הוצאות והכנסות</TabsTrigger>
+          <TabsTrigger value="geojson">מפת שכונות</TabsTrigger>
         </TabsList>
         <TabsContent value="entities" className="mt-4">
           <EntitiesPage />
         </TabsContent>
         <TabsContent value="categories" className="mt-4">
           <CategoriesPage />
+        </TabsContent>
+        <TabsContent value="geojson" className="mt-4">
+          <GeoJsonSettings />
         </TabsContent>
       </Tabs>
     </div>
