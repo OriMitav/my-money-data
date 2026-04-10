@@ -155,7 +155,7 @@ Deno.serve(async (req) => {
 
     // Filter by rooms if specified in actor_input
     const requestedRooms = actorInput.rooms;
-    if (requestedRooms !== undefined && requestedRooms !== null && requestedRooms !== "") {
+    if (requestedRooms !== undefined && requestedRooms !== null && requestedRooms !== "" && Number(requestedRooms) > 0) {
       const roomsNum = Number(requestedRooms);
       if (!isNaN(roomsNum)) {
         items = items.filter((item: any) => Number(item.rooms) === roomsNum);
