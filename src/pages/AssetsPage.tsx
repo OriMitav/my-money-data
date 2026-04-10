@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +14,8 @@ import { Plus, Building2, Settings2, Home, Loader2, RefreshCw, ArrowLeft, Eye, A
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
@@ -425,6 +427,32 @@ export default function AssetsPage() {
 
 // ===== Sub-components =====
 
+// Approximate coordinates for Modiin neighbourhoods
+const NEIGHBOURHOOD_COORDS: Record<string, [number, number]> = {
+  "מורשת": [31.9075, 35.0100],
+  "בוכמן": [31.9000, 35.0050],
+  "אבני חן": [31.8950, 35.0100],
+  "כסלו": [31.8920, 35.0150],
+  "עמק החולה": [31.8900, 35.0130],
+  "אודם": [31.9030, 34.9980],
+  "נופים": [31.9100, 35.0050],
+  "המרכז": [31.8980, 35.0080],
+  "ענבל": [31.8850, 35.0200],
+  "ליגד": [31.8870, 35.0050],
+  "כפר האורנים": [31.9180, 34.9900],
+  "שילת": [31.9200, 34.9850],
+  "מכבים": [31.8800, 35.0000],
+  "רעות": [31.8830, 35.0250],
+  "הפרחים": [31.9050, 35.0130],
+  "מתתיהו": [31.9120, 35.0020],
+  "יהודה המכבי": [31.8960, 35.0180],
+  "הגפן": [31.8940, 35.0060],
+  "משואה": [31.9060, 35.0000],
+  "עין גדי": [31.8970, 35.0020],
+};
+
+const MODIIN_CENTER: [number, number] = [31.897, 35.010];
+
 function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
   const data = useMemo(() => {
     const latest = snapshots.length > 0 ? snapshots[0] : null;
@@ -437,8 +465,25 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
       map[hood].totalPrice += Number(item.price) || 0;
       map[hood].totalArea += Number(item.areaSqm) || 0;
     }
+    let unknownIdx = 0;
     return Object.entries(map)
-      .map(([name, v]) => ({ name, count: v.count, avgPrice: Math.round(v.totalPrice / v.count), avgArea: Math.round(v.totalArea / v.count) }))
+      .map(([name, v]) => {
+        let coords = NEIGHBOURHOOD_COORDS[name];
+        if (!coords) {
+          // Spread unknown neighbourhoods around center
+          const angle = (unknownIdx * 137.5 * Math.PI) / 180;
+          const r = 0.003 + unknownIdx * 0.001;
+          coords = [MODIIN_CENTER[0] + r * Math.cos(angle), MODIIN_CENTER[1] + r * Math.sin(angle)];
+          unknownIdx++;
+        }
+        return {
+          name,
+          count: v.count,
+          avgPrice: Math.round(v.totalPrice / v.count),
+          avgArea: Math.round(v.totalArea / v.count),
+          coords,
+        };
+      })
       .sort((a, b) => b.count - a.count);
   }, [snapshots]);
 
@@ -449,26 +494,44 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
     <Card>
       <CardHeader className="pb-2"><CardTitle className="text-base">התפלגות לפי שכונות</CardTitle></CardHeader>
       <CardContent>
-        <div className="flex flex-wrap gap-2">
-          {data.map(d => {
-            const intensity = Math.max(0.15, d.count / maxCount);
-            return (
-              <div
-                key={d.name}
-                className="relative rounded-lg px-3 py-2 text-center cursor-default transition-transform hover:scale-105"
-                style={{ backgroundColor: `hsl(var(--primary) / ${intensity})`, minWidth: 80 }}
-                title={`${d.name}\nיחידות: ${d.count}\nמחיר ממוצע: ${fmt(d.avgPrice)}\nשטח ממוצע: ${d.avgArea} מ״ר`}
-              >
-                <div className="text-xs font-semibold text-primary-foreground truncate max-w-[120px]">{d.name}</div>
-                <div className="text-lg font-bold text-primary-foreground">{d.count}</div>
-                <div className="absolute invisible group-hover:visible pointer-events-none z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground border rounded-md shadow-lg p-2 text-xs whitespace-nowrap">
-                  <div>יחידות: {d.count}</div>
-                  <div>מחיר ממוצע: {fmt(d.avgPrice)}</div>
-                  <div>שטח ממוצע: {d.avgArea} מ״ר</div>
-                </div>
-              </div>
-            );
-          })}
+        <div className="h-[400px] rounded-lg overflow-hidden" dir="ltr">
+          <MapContainer
+            center={MODIIN_CENTER}
+            zoom={13}
+            style={{ height: "100%", width: "100%" }}
+            scrollWheelZoom={true}
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            {data.map(d => {
+              const intensity = d.count / maxCount;
+              const radius = Math.max(12, intensity * 35);
+              return (
+                <CircleMarker
+                  key={d.name}
+                  center={d.coords as [number, number]}
+                  radius={radius}
+                  pathOptions={{
+                    fillColor: `hsl(20, 90%, ${55 - intensity * 25}%)`,
+                    fillOpacity: 0.7 + intensity * 0.3,
+                    color: "#c44",
+                    weight: 1.5,
+                  }}
+                >
+                  <Popup>
+                    <div className="text-right" dir="rtl" style={{ minWidth: 140 }}>
+                      <div className="font-bold text-sm mb-1">{d.name}</div>
+                      <div className="text-xs">יחידות: <strong>{d.count}</strong></div>
+                      <div className="text-xs">מחיר ממוצע: <strong>{fmt(d.avgPrice)}</strong></div>
+                      <div className="text-xs">שטח ממוצע: <strong>{d.avgArea} מ״ר</strong></div>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              );
+            })}
+          </MapContainer>
         </div>
       </CardContent>
     </Card>
