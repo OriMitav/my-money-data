@@ -131,6 +131,20 @@ export default function DashboardPage() {
     enabled: !!user,
   });
 
+  const { data: pensionSettings } = useQuery({
+    queryKey: ["pension_settings_dash", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("pension_settings")
+        .select("checking_balance")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
   // Debts & debt entries
   const { data: debts = [] } = useQuery({
     queryKey: ["debts_dash", user?.id],
@@ -302,28 +316,28 @@ export default function DashboardPage() {
       .filter((d) => d.value > 0);
   }, [pensionFunds, pensionEntries]);
 
-  // Pension color map: אורי=blue, ענאל=pink
   const pensionColorMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    pensionPieData.forEach((d, i) => {
-      const nameLower = d.name.toLowerCase();
-      if (nameLower.includes("אורי")) {
-        map[d.name] = "hsl(217, 91%, 60%)"; // blue
-      } else if (nameLower.includes("ענאל")) {
-        map[d.name] = "hsl(330, 80%, 60%)"; // pink
-      } else {
-        map[d.name] = PIE_COLORS[(i + 2) % PIE_COLORS.length];
-      }
-    });
-    return map;
+    const entries = pensionPieData.map((d, i) => [d.name, PIE_COLORS[(i + 4) % PIE_COLORS.length]] as const);
+    const oriIndex = entries.findIndex(([name]) => name.includes("אורי"));
+    const analIndex = entries.findIndex(([name]) => name.includes("ענאל"));
+
+    if (oriIndex >= 0 && analIndex >= 0) {
+      const oriColor = entries[oriIndex][1];
+      entries[oriIndex] = [entries[oriIndex][0], entries[analIndex][1]] as const;
+      entries[analIndex] = [entries[analIndex][0], oriColor] as const;
+    }
+
+    return Object.fromEntries(entries);
   }, [pensionPieData]);
 
-  // Savings (non-pension, non-children) - ONLY relevant funds
+  const checkingBalance = Number((pensionSettings as { checking_balance?: number } | null)?.checking_balance || 0);
+
+  // Savings pie remains non-pension and non-children, but totals match Pension page logic
   const savingsPieData = useMemo(() => {
     return pensionFunds
       .filter((f) => f.type !== "pension" && f.type !== "child_savings" && f.relevant !== false)
       .map((fund) => {
-        const sorted = pensionEntries.filter(e => e.fund_id === fund.id).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+        const sorted = pensionEntries.filter((e) => e.fund_id === fund.id).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
         const latestEntry = sorted.length > 0 ? sorted[sorted.length - 1] : null;
         return {
           name: fund.name,
@@ -334,9 +348,23 @@ export default function DashboardPage() {
       .filter((d) => d.value > 0);
   }, [pensionFunds, pensionEntries]);
 
-  // Total savings only from relevant non-children non-pension + all pension
-  const totalSavings = savingsPieData.reduce((s, d) => s + d.value, 0) + pensionPieData.reduce((s, d) => s + d.value, 0);
-  const totalAccessible = savingsPieData.filter((d) => d.accessible).reduce((s, d) => s + d.value, 0);
+  const relevantFundsSummary = useMemo(() => {
+    return pensionFunds
+      .filter((fund) => fund.relevant !== false)
+      .map((fund) => {
+        const sorted = pensionEntries.filter((e) => e.fund_id === fund.id).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+        const latestEntry = sorted.length > 0 ? sorted[sorted.length - 1] : null;
+        return {
+          value: Number(latestEntry?.closing_balance || 0),
+          accessible: fund.accessible,
+        };
+      });
+  }, [pensionFunds, pensionEntries]);
+
+  const totalSavings = relevantFundsSummary.reduce((sum, fund) => sum + fund.value, 0) + checkingBalance;
+  const totalAccessible = relevantFundsSummary
+    .filter((fund) => fund.accessible)
+    .reduce((sum, fund) => sum + fund.value, 0) + checkingBalance;
 
   // Children savings with 3 projections (y1/y3/y5)
   const getEntriesSorted = (fundId: string) =>
@@ -542,9 +570,38 @@ export default function DashboardPage() {
     </div>
   );
 
-  const renderPieLabel = ({ name, percent }: { name: string; percent: number; value: number }) => {
-    if (percent < 0.05) return null;
-    return `${name} ${(percent * 100).toFixed(0)}%`;
+  const renderPieLabel = ({
+    cx,
+    cy,
+    midAngle,
+    outerRadius,
+    name,
+    percent,
+  }: {
+    cx?: number;
+    cy?: number;
+    midAngle?: number;
+    outerRadius?: number;
+    name: string;
+    percent: number;
+  }) => {
+    if (percent < 0.05 || cx == null || cy == null || midAngle == null || outerRadius == null) return null;
+    const radius = outerRadius + 18;
+    const x = cx + radius * Math.cos((-midAngle * Math.PI) / 180);
+    const y = cy + radius * Math.sin((-midAngle * Math.PI) / 180);
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="hsl(0 0% 0%)"
+        textAnchor={x > cx ? "start" : "end"}
+        dominantBaseline="central"
+        fontSize={11}
+      >
+        {`${name} ${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
   };
 
   // In RTL: right label = earliest date, left label = latest date
@@ -649,8 +706,7 @@ export default function DashboardPage() {
                         ))}
                       </defs>
                       <Pie data={savingsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}
-                        style={{ fill: "#000" }}>
+                        label={renderPieLabel} labelLine={false} fontSize={11}>
                         {savingsPieData.map((d, i) => (
                           <Cell key={d.name}
                             fill={d.accessible ? PIE_COLORS[i % PIE_COLORS.length] : `url(#stripe-${i})`}
@@ -688,8 +744,7 @@ export default function DashboardPage() {
                   <ResponsiveContainer width="100%" height={320}>
                     <PieChart>
                       <Pie data={pensionPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}
-                        style={{ fill: "#000" }}>
+                        label={renderPieLabel} labelLine={false} fontSize={11}>
                         {pensionPieData.map((d) => (
                           <Cell key={d.name} fill={pensionColorMap[d.name] || PIE_COLORS[0]} />
                         ))}
@@ -727,8 +782,7 @@ export default function DashboardPage() {
                   <ResponsiveContainer width="100%" height={320}>
                     <PieChart>
                       <Pie data={debtPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}
-                        style={{ fill: "#000" }}>
+                        label={renderPieLabel} labelLine={false} fontSize={11}>
                         {debtPieData.map((d) => (
                           <Cell key={d.name} fill={debtColorMap[d.name] || PIE_COLORS[0]} />
                         ))}
@@ -762,8 +816,7 @@ export default function DashboardPage() {
                   <ResponsiveContainer width="100%" height={320}>
                     <PieChart>
                       <Pie data={debtPaymentsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}
-                        style={{ fill: "#000" }}>
+                        label={renderPieLabel} labelLine={false} fontSize={11}>
                         {debtPaymentsPieData.map((d) => (
                           <Cell key={d.name} fill={debtColorMap[d.name] || PIE_COLORS[0]} />
                         ))}
