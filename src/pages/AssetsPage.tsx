@@ -527,6 +527,34 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
 
   const val = (key: keyof Property) => (f[key] !== undefined ? f[key] : property[key]) as any;
 
+  // Extract structured fields from JSON inputs
+  const saleInput = (f.apify_sale_input !== undefined ? f.apify_sale_input : property.apify_sale_input) as Record<string, any> || {};
+  const rentInput = (f.apify_rent_input !== undefined ? f.apify_rent_input : property.apify_rent_input) as Record<string, any> || {};
+
+  const updateSaleInput = (key: string, value: any) => {
+    const current = { ...saleInput };
+    if (value === "" || value === undefined) { delete current[key]; } else { current[key] = value; }
+    setF(p => ({ ...p, apify_sale_input: current }));
+  };
+
+  const updateRentInput = (key: string, value: any) => {
+    const current = { ...rentInput };
+    if (value === "" || value === undefined) { delete current[key]; } else { current[key] = value; }
+    // Always ensure dealType is "rent" for rent input
+    current.dealType = "rent";
+    setF(p => ({ ...p, apify_rent_input: current }));
+  };
+
+  // When saving, ensure rent input always has dealType: "rent"
+  const handleSave = () => {
+    const finalF = { ...f };
+    const finalRent = { ...(finalF.apify_rent_input as Record<string, any> || rentInput) };
+    finalRent.dealType = "rent";
+    finalF.apify_rent_input = finalRent;
+    onSave(finalF);
+    onOpenChange(false);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg" dir="rtl">
@@ -546,29 +574,30 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
           <div className="border-t pt-4 space-y-3">
             <h3 className="font-semibold text-sm text-muted-foreground">חיבור Apify</h3>
             <div><Label>טוקן API</Label><Input type="password" value={val("apify_token")} onChange={e => setF(p => ({ ...p, apify_token: e.target.value }))} placeholder="apify_api_..." /></div>
-            <div><Label>Actor ID - מכירה</Label><Input value={val("apify_actor_sale_id")} onChange={e => setF(p => ({ ...p, apify_actor_sale_id: e.target.value }))} placeholder="username/actor-name" /></div>
-            <div><Label>Actor Input - מכירה (JSON)</Label>
-              <textarea
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[60px]"
-                value={typeof val("apify_sale_input") === "object" ? JSON.stringify(val("apify_sale_input"), null, 2) : val("apify_sale_input") || "{}"}
-                onChange={e => { try { const parsed = JSON.parse(e.target.value); setF(p => ({ ...p, apify_sale_input: parsed })); } catch {} }}
-                placeholder='{"city": 1200, "rooms": 4}'
-              />
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            <h3 className="font-semibold text-sm text-muted-foreground">הגדרות שליפה - מכירה</h3>
+            <div><Label>Actor ID</Label><Input value={val("apify_actor_sale_id")} onChange={e => setF(p => ({ ...p, apify_actor_sale_id: e.target.value }))} placeholder="username/actor-name" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>קוד עיר</Label><Input value={saleInput.city || ""} onChange={e => updateSaleInput("city", e.target.value)} placeholder="לדוגמה: 1200" /></div>
+              <div><Label>חדרים</Label><Input type="number" value={saleInput.rooms || ""} onChange={e => updateSaleInput("rooms", e.target.value ? Number(e.target.value) : "")} placeholder="4" /></div>
             </div>
-            <div><Label>Actor ID - שכירות</Label><Input value={val("apify_actor_rent_id")} onChange={e => setF(p => ({ ...p, apify_actor_rent_id: e.target.value }))} placeholder="username/actor-name" /></div>
-            <div><Label>Actor Input - שכירות (JSON)</Label>
-              <textarea
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[60px]"
-                value={typeof val("apify_rent_input") === "object" ? JSON.stringify(val("apify_rent_input"), null, 2) : val("apify_rent_input") || "{}"}
-                onChange={e => { try { const parsed = JSON.parse(e.target.value); setF(p => ({ ...p, apify_rent_input: parsed })); } catch {} }}
-                placeholder='{"city": 1200, "rooms": 4}'
-              />
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            <h3 className="font-semibold text-sm text-muted-foreground">הגדרות שליפה - שכירות</h3>
+            <div><Label>Actor ID</Label><Input value={val("apify_actor_rent_id")} onChange={e => setF(p => ({ ...p, apify_actor_rent_id: e.target.value }))} placeholder="username/actor-name" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label>קוד עיר</Label><Input value={rentInput.city || ""} onChange={e => updateRentInput("city", e.target.value)} placeholder="לדוגמה: 1200" /></div>
+              <div><Label>חדרים</Label><Input type="number" value={rentInput.rooms || ""} onChange={e => updateRentInput("rooms", e.target.value ? Number(e.target.value) : "")} placeholder="4" /></div>
             </div>
+            <p className="text-xs text-muted-foreground">סוג עסקה (dealType) מוגדר אוטומטית כ-&quot;rent&quot;</p>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>ביטול</Button>
-          <Button onClick={() => { onSave(f); onOpenChange(false); }}>שמור</Button>
+          <Button onClick={handleSave}>שמור</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

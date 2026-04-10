@@ -149,9 +149,9 @@ Deno.serve(async (req) => {
     const rawData = items.map((item: any) => ({
       neighbourhood: item.neighbourhood || item.neighborhood || "",
       address: item.address || "",
-      areaSqm: item.areaSqm || item.area || 0,
+      areaSqm: item.square_meters || item.areaSqm || item.squareMeters || item.area_sqm || item.size || 0,
       price: item.price || 0,
-      rooms: item.rooms || 0,
+      rooms: item.rooms || item.room_number || 0,
     }));
 
     const { data: snapshot, error: snapError } = await supabase
