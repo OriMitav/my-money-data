@@ -120,6 +120,7 @@ export default function AssetsPage() {
           type,
           year: now.getFullYear(),
           month: now.getMonth() + 1,
+          city: property.city,
         },
       });
       if (res.error) throw res.error;
