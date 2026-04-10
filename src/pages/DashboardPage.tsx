@@ -1,11 +1,13 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Slider } from "@/components/ui/slider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { he } from "date-fns/locale";
 import {
@@ -16,10 +18,11 @@ import {
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   PieChart, Pie, Cell, ResponsiveContainer,
-  BarChart, Bar,
+  BarChart, Bar, LabelList,
 } from "recharts";
-import { LayoutDashboard } from "lucide-react";
+import { LayoutDashboard, Camera } from "lucide-react";
 import { fetchAllPages } from "@/lib/fetchAllPages";
+import { toast } from "sonner";
 
 type Transaction = {
   id: string;
@@ -65,7 +68,9 @@ const StripedPattern = ({ id, color }: { id: string; color: string }) => (
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [summaryView, setSummaryView] = useState<"monthly" | "yearly">("monthly");
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const { data: entities } = useQuery({
     queryKey: ["entities", user?.id],
@@ -97,7 +102,7 @@ export default function DashboardPage() {
     enabled: !!user,
   });
 
-  // Pension funds & entries - ALL funds regardless of relevant/accessible
+  // Pension funds & entries - ALL funds
   const { data: pensionFunds = [] } = useQuery({
     queryKey: ["pension_funds_dash", user?.id],
     queryFn: async () => {
@@ -118,8 +123,8 @@ export default function DashboardPage() {
         .from("pension_entries")
         .select("*")
         .eq("user_id", user!.id)
-        .order("year", { ascending: false })
-        .order("month", { ascending: false });
+        .order("year", { ascending: true })
+        .order("month", { ascending: true });
       if (error) throw error;
       return data;
     },
@@ -168,6 +173,24 @@ export default function DashboardPage() {
       return data;
     },
     enabled: !!user,
+  });
+
+  // Photo upload mutation
+  const uploadPhoto = useMutation({
+    mutationFn: async ({ fundId, file }: { fundId: string; file: File }) => {
+      const ext = file.name.split(".").pop();
+      const path = `${user!.id}/${fundId}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("child-photos").upload(path, file, { upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from("child-photos").getPublicUrl(path);
+      const { error: updateError } = await supabase.from("pension_funds").update({ photo_url: urlData.publicUrl } as any).eq("id", fundId);
+      if (updateError) throw updateError;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pension_funds_dash"] });
+      toast.success("התמונה הועלתה בהצלחה");
+    },
+    onError: () => toast.error("שגיאה בהעלאת התמונה"),
   });
 
   const entityMap = useMemo(() => {
@@ -268,7 +291,8 @@ export default function DashboardPage() {
     return pensionFunds
       .filter((f) => f.type === "pension")
       .map((fund) => {
-        const latestEntry = pensionEntries.find((e) => e.fund_id === fund.id);
+        const sorted = pensionEntries.filter(e => e.fund_id === fund.id).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+        const latestEntry = sorted.length > 0 ? sorted[sorted.length - 1] : null;
         return {
           name: fund.name,
           value: Number(latestEntry?.closing_balance || 0),
@@ -278,12 +302,29 @@ export default function DashboardPage() {
       .filter((d) => d.value > 0);
   }, [pensionFunds, pensionEntries]);
 
-  // Savings (non-pension, non-children)
+  // Pension color map: אורי=blue, ענאל=pink
+  const pensionColorMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    pensionPieData.forEach((d, i) => {
+      const nameLower = d.name.toLowerCase();
+      if (nameLower.includes("אורי")) {
+        map[d.name] = "hsl(217, 91%, 60%)"; // blue
+      } else if (nameLower.includes("ענאל")) {
+        map[d.name] = "hsl(330, 80%, 60%)"; // pink
+      } else {
+        map[d.name] = PIE_COLORS[(i + 2) % PIE_COLORS.length];
+      }
+    });
+    return map;
+  }, [pensionPieData]);
+
+  // Savings (non-pension, non-children) - ONLY relevant funds
   const savingsPieData = useMemo(() => {
     return pensionFunds
-      .filter((f) => f.type !== "pension" && f.type !== "children")
+      .filter((f) => f.type !== "pension" && f.type !== "child_savings" && f.relevant !== false)
       .map((fund) => {
-        const latestEntry = pensionEntries.find((e) => e.fund_id === fund.id);
+        const sorted = pensionEntries.filter(e => e.fund_id === fund.id).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+        const latestEntry = sorted.length > 0 ? sorted[sorted.length - 1] : null;
         return {
           name: fund.name,
           value: Number(latestEntry?.closing_balance || 0),
@@ -293,56 +334,94 @@ export default function DashboardPage() {
       .filter((d) => d.value > 0);
   }, [pensionFunds, pensionEntries]);
 
+  // Total savings only from relevant non-children non-pension + all pension
   const totalSavings = savingsPieData.reduce((s, d) => s + d.value, 0) + pensionPieData.reduce((s, d) => s + d.value, 0);
   const totalAccessible = savingsPieData.filter((d) => d.accessible).reduce((s, d) => s + d.value, 0);
 
-  // Children savings
+  // Children savings with 3 projections (y1/y3/y5)
+  const getEntriesSorted = (fundId: string) =>
+    pensionEntries.filter(e => e.fund_id === fundId).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+
+  const getReturnSummary = (fundId: string) => {
+    const sorted = getEntriesSorted(fundId);
+    if (sorted.length < 2) return { y1: null as number | null, y3: null as number | null, y5: null as number | null };
+
+    const now = sorted[sorted.length - 1];
+    const nowDate = new Date(now.year, now.month - 1);
+
+    const calcReturn = (monthsBack: number) => {
+      const targetDate = new Date(nowDate);
+      targetDate.setMonth(targetDate.getMonth() - monthsBack);
+      const periodEntries = sorted.filter(e => {
+        const eDate = new Date(e.year, e.month - 1);
+        return eDate > targetDate && eDate <= nowDate;
+      });
+      if (periodEntries.length < 1) return null;
+      let compoundFactor = 1;
+      for (const e of periodEntries) {
+        compoundFactor *= (1 + Number(e.monthly_return));
+      }
+      return compoundFactor - 1;
+    };
+
+    return { y1: calcReturn(12), y3: calcReturn(36), y5: calcReturn(60) };
+  };
+
   const childrenFunds = useMemo(() => {
     return pensionFunds
-      .filter((f) => f.type === "children" || f.parent_matching === true)
+      .filter((f) => f.type === "child_savings")
       .map((fund) => {
-        const latestEntry = pensionEntries.find((e) => e.fund_id === fund.id);
-        const currentBalance = Number(latestEntry?.closing_balance || 0);
+        const sorted = getEntriesSorted(fund.id);
+        const currentBalance = sorted.length > 0 ? Number(sorted[sorted.length - 1].closing_balance) : 0;
+        const rs = getReturnSummary(fund.id);
 
-        // Calculate projected savings until age 18
-        let projected = currentBalance;
+        const last12 = sorted.slice(-12);
+        const avgDeposit = last12.length > 0
+          ? last12.reduce((s, e) => s + Number(e.employee_contribution) + Number(e.employer_contribution) + Number(e.compensation), 0) / last12.length
+          : 0;
+
+        const depositFee = (fund.deposit_fee_pct || 0) / 100;
+        const accumFee = (fund.accumulation_fee_pct || 0) / 100 / 12;
+
+        let forecastMonths = 60;
         if (fund.birth_date) {
           const birthDate = new Date(fund.birth_date);
-          const now = new Date();
-          const ageMonths = (now.getFullYear() - birthDate.getFullYear()) * 12 + (now.getMonth() - birthDate.getMonth());
           const endAge = fund.end_savings_age || 18;
-          const remainingMonths = Math.max(0, endAge * 12 - ageMonths);
-
-          // Get monthly contributions from recent entries
-          const fundEntries = pensionEntries
-            .filter((e) => e.fund_id === fund.id)
-            .slice(0, 6);
-          const avgMonthlyDeposit = fundEntries.length > 0
-            ? fundEntries.reduce((s, e) => s + Number(e.employee_contribution) + Number(e.employer_contribution), 0) / fundEntries.length
-            : 0;
-          const avgMonthlyReturn = fundEntries.length > 0
-            ? fundEntries.reduce((s, e) => s + Number(e.monthly_return), 0) / fundEntries.length / 100
-            : 0;
-
-          // Simple projection
-          let balance = currentBalance;
-          for (let i = 0; i < remainingMonths; i++) {
-            balance = balance * (1 + avgMonthlyReturn) + avgMonthlyDeposit;
-          }
-          projected = balance;
+          const endDate = new Date(birthDate.getFullYear() + endAge, birthDate.getMonth());
+          const lastDate = sorted.length > 0 ? new Date(sorted[sorted.length - 1].year, sorted[sorted.length - 1].month - 1) : new Date();
+          forecastMonths = Math.max(0, Math.round((endDate.getTime() - lastDate.getTime()) / (30.44 * 24 * 60 * 60 * 1000)));
         }
+        forecastMonths = Math.min(forecastMonths, 600);
+
+        const calcProjection = (yieldVal: number | null) => {
+          if (yieldVal == null) return null;
+          const monthlyYield = Math.pow(1 + yieldVal, 1 / 12) - 1;
+          let bal = currentBalance;
+          for (let i = 0; i < forecastMonths; i++) {
+            const fees = avgDeposit * depositFee + bal * accumFee;
+            bal = bal * (1 + monthlyYield) + avgDeposit - fees;
+          }
+          return bal;
+        };
+
+        const scenarios = [
+          { key: "y1", label: "תשואה שנה", value: calcProjection(rs.y1) },
+          { key: "y3", label: "תשואה 3 שנים", value: calcProjection(rs.y3 != null ? Math.pow(1 + rs.y3, 1 / 3) - 1 : null) },
+          { key: "y5", label: "תשואה 5 שנים", value: calcProjection(rs.y5 != null ? Math.pow(1 + rs.y5, 1 / 5) - 1 : null) },
+        ];
 
         return {
+          id: fund.id,
           name: fund.name,
           currentBalance,
-          projected,
+          scenarios,
+          photoUrl: (fund as any).photo_url || "",
         };
       })
       .filter((d) => d.currentBalance > 0);
   }, [pensionFunds, pensionEntries]);
 
   const totalChildrenSavings = childrenFunds.reduce((s, d) => s + d.currentBalance, 0);
-  const totalChildrenProjected = childrenFunds.reduce((s, d) => s + d.projected, 0);
 
   // --- Debt pie data ---
   const debtPieData = useMemo(() => {
@@ -472,6 +551,13 @@ export default function DashboardPage() {
   const earliestLabel = allMonthsData[actualRange[0]]?.label || "";
   const latestLabel = allMonthsData[actualRange[1]]?.label || "";
 
+  const handlePhotoUpload = (fundId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadPhoto.mutate({ fundId, file });
+    }
+  };
+
   return (
     <div className="max-w-[1600px] mx-auto space-y-4">
       <div>
@@ -563,7 +649,8 @@ export default function DashboardPage() {
                         ))}
                       </defs>
                       <Pie data={savingsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}>
+                        label={renderPieLabel} labelLine={false} fontSize={11}
+                        style={{ fill: "#000" }}>
                         {savingsPieData.map((d, i) => (
                           <Cell key={d.name}
                             fill={d.accessible ? PIE_COLORS[i % PIE_COLORS.length] : `url(#stripe-${i})`}
@@ -601,9 +688,10 @@ export default function DashboardPage() {
                   <ResponsiveContainer width="100%" height={320}>
                     <PieChart>
                       <Pie data={pensionPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}>
-                        {pensionPieData.map((d, i) => (
-                          <Cell key={d.name} fill={PIE_COLORS[(i + 4) % PIE_COLORS.length]} />
+                        label={renderPieLabel} labelLine={false} fontSize={11}
+                        style={{ fill: "#000" }}>
+                        {pensionPieData.map((d) => (
+                          <Cell key={d.name} fill={pensionColorMap[d.name] || PIE_COLORS[0]} />
                         ))}
                       </Pie>
                       <ChartTooltip content={({ payload }) => {
@@ -639,7 +727,8 @@ export default function DashboardPage() {
                   <ResponsiveContainer width="100%" height={320}>
                     <PieChart>
                       <Pie data={debtPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}>
+                        label={renderPieLabel} labelLine={false} fontSize={11}
+                        style={{ fill: "#000" }}>
                         {debtPieData.map((d) => (
                           <Cell key={d.name} fill={debtColorMap[d.name] || PIE_COLORS[0]} />
                         ))}
@@ -673,7 +762,8 @@ export default function DashboardPage() {
                   <ResponsiveContainer width="100%" height={320}>
                     <PieChart>
                       <Pie data={debtPaymentsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}>
+                        label={renderPieLabel} labelLine={false} fontSize={11}
+                        style={{ fill: "#000" }}>
                         {debtPaymentsPieData.map((d) => (
                           <Cell key={d.name} fill={debtColorMap[d.name] || PIE_COLORS[0]} />
                         ))}
@@ -703,22 +793,58 @@ export default function DashboardPage() {
             <Card>
               <CardHeader className="pb-1">
                 <CardTitle className="text-base">חיסכון לכל ילד</CardTitle>
+                <div className="text-xl font-bold">סה״כ: {formatCurrency(totalChildrenSavings)}</div>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {childrenFunds.map((child, i) => (
-                    <div key={child.name} className="text-center space-y-1">
-                      <div className="text-lg font-bold">{formatCurrency(child.currentBalance)}</div>
-                      <div className="text-xs text-muted-foreground">צפי עד גיל 18: {formatCurrency(child.projected)}</div>
-                      <div className="text-sm font-medium">{child.name}</div>
-                      <div className="h-4 rounded-full bg-secondary overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${Math.min(100, (child.currentBalance / Math.max(child.projected, 1)) * 100)}%`,
-                            backgroundColor: PIE_COLORS[i % PIE_COLORS.length],
-                          }}
+                    <div key={child.id} className="flex flex-col items-center space-y-2">
+                      {/* Bar */}
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={[{ name: child.name, value: child.currentBalance }]}>
+                          <YAxis hide />
+                          <Bar dataKey="value" fill={PIE_COLORS[i % PIE_COLORS.length]} radius={[6, 6, 0, 0]} barSize={60}>
+                            <LabelList dataKey="value" position="top" formatter={(v: number) => formatCurrency(v)} style={{ fontSize: 12, fontWeight: "bold", fill: "#000" }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+
+                      {/* Photo circle */}
+                      <div className="relative group cursor-pointer" onClick={() => fileInputRefs.current[child.id]?.click()}>
+                        <Avatar className="h-14 w-14 border-2 border-primary/30">
+                          {child.photoUrl ? (
+                            <AvatarImage src={child.photoUrl} alt={child.name} />
+                          ) : null}
+                          <AvatarFallback className="text-xs bg-muted">
+                            <Camera className="h-5 w-5 text-muted-foreground" />
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="absolute inset-0 rounded-full bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Camera className="h-4 w-4 text-white" />
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          ref={(el) => { fileInputRefs.current[child.id] = el; }}
+                          onChange={(e) => handlePhotoUpload(child.id, e)}
                         />
+                      </div>
+
+                      {/* Name */}
+                      <div className="text-sm font-semibold">{child.name}</div>
+
+                      {/* Current balance */}
+                      <div className="text-lg font-bold">{formatCurrency(child.currentBalance)}</div>
+
+                      {/* 3 Projections */}
+                      <div className="w-full space-y-1">
+                        {child.scenarios.map((s) => (
+                          <div key={s.key} className="flex justify-between text-xs text-muted-foreground px-1">
+                            <span>{s.label}:</span>
+                            <span className="font-medium">{s.value != null ? formatCurrency(Math.round(s.value)) : "—"}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
