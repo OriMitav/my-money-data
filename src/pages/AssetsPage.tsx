@@ -123,7 +123,7 @@ export default function AssetsPage() {
     onError: (e: any) => toast.error(e.message),
   });
 
-  const fetchApifyData = async (property: Property, type: "sale" | "rent") => {
+  const fetchApifyData = async (property: Property, type: "sale" | "rent", overrideYear?: number, overrideMonth?: number) => {
     const actorId = type === "sale" ? property.apify_actor_sale_id : property.apify_actor_rent_id;
     if (!property.apify_token || !actorId) {
       toast.error("חסר טוקן Apify או מזהה Actor");
@@ -132,6 +132,8 @@ export default function AssetsPage() {
     setFetchingType(type);
     setFetchError(null);
     const now = new Date();
+    const year = overrideYear ?? now.getFullYear();
+    const month = overrideMonth ?? (now.getMonth() + 1);
     try {
       const actorInput = type === "sale" ? property.apify_sale_input : property.apify_rent_input;
       const res = await supabase.functions.invoke<FetchApifyResponse>("fetch-apify-data", {
@@ -140,8 +142,8 @@ export default function AssetsPage() {
           apify_token: property.apify_token,
           actor_id: actorId,
           type,
-          year: now.getFullYear(),
-          month: now.getMonth() + 1,
+          year,
+          month,
           actor_input: actorInput,
         },
       });
@@ -349,7 +351,7 @@ export default function AssetsPage() {
           <SnapshotMatrix
             snapshots={snapRent}
             label="שכירות"
-            onFetch={() => fetchApifyData(prop, "rent")}
+            onFetch={(y, m) => fetchApifyData(prop, "rent", y, m)}
             fetching={fetchingType === "rent"}
             hasActor={!!prop.apify_actor_rent_id && !!prop.apify_token}
             onViewRaw={setDrawerData}
@@ -361,7 +363,7 @@ export default function AssetsPage() {
           <SnapshotMatrix
             snapshots={snapSale}
             label="מכירה"
-            onFetch={() => fetchApifyData(prop, "sale")}
+            onFetch={(y, m) => fetchApifyData(prop, "sale", y, m)}
             fetching={fetchingType === "sale"}
             hasActor={!!prop.apify_actor_sale_id && !!prop.apify_token}
             onViewRaw={setDrawerData}
@@ -423,10 +425,60 @@ export default function AssetsPage() {
 
 // ===== Sub-components =====
 
+function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
+  const data = useMemo(() => {
+    const latest = snapshots.length > 0 ? snapshots[0] : null;
+    if (!latest || !Array.isArray(latest.raw_data) || latest.raw_data.length === 0) return [];
+    const map: Record<string, { count: number; totalPrice: number; totalArea: number }> = {};
+    for (const item of latest.raw_data as any[]) {
+      const hood = item.neighbourhood || item.neighborhood || "לא ידוע";
+      if (!map[hood]) map[hood] = { count: 0, totalPrice: 0, totalArea: 0 };
+      map[hood].count++;
+      map[hood].totalPrice += Number(item.price) || 0;
+      map[hood].totalArea += Number(item.areaSqm) || 0;
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, count: v.count, avgPrice: Math.round(v.totalPrice / v.count), avgArea: Math.round(v.totalArea / v.count) }))
+      .sort((a, b) => b.count - a.count);
+  }, [snapshots]);
+
+  if (data.length === 0) return null;
+  const maxCount = Math.max(...data.map(d => d.count));
+
+  return (
+    <Card>
+      <CardHeader className="pb-2"><CardTitle className="text-base">התפלגות לפי שכונות</CardTitle></CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          {data.map(d => {
+            const intensity = Math.max(0.15, d.count / maxCount);
+            return (
+              <div
+                key={d.name}
+                className="relative rounded-lg px-3 py-2 text-center cursor-default transition-transform hover:scale-105"
+                style={{ backgroundColor: `hsl(var(--primary) / ${intensity})`, minWidth: 80 }}
+                title={`${d.name}\nיחידות: ${d.count}\nמחיר ממוצע: ${fmt(d.avgPrice)}\nשטח ממוצע: ${d.avgArea} מ״ר`}
+              >
+                <div className="text-xs font-semibold text-primary-foreground truncate max-w-[120px]">{d.name}</div>
+                <div className="text-lg font-bold text-primary-foreground">{d.count}</div>
+                <div className="absolute invisible group-hover:visible pointer-events-none z-50 bottom-full mb-2 left-1/2 -translate-x-1/2 bg-popover text-popover-foreground border rounded-md shadow-lg p-2 text-xs whitespace-nowrap">
+                  <div>יחידות: {d.count}</div>
+                  <div>מחיר ממוצע: {fmt(d.avgPrice)}</div>
+                  <div>שטח ממוצע: {d.avgArea} מ״ר</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewRaw, error }: {
   snapshots: Snapshot[];
   label: string;
-  onFetch: () => void;
+  onFetch: (year?: number, month?: number) => void;
   fetching: boolean;
   hasActor: boolean;
   onViewRaw: (data: any[]) => void;
@@ -439,14 +491,24 @@ function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewR
     }));
   }, [snapshots]);
 
+  const handleRefresh = () => {
+    if (snapshots.length > 0) {
+      const latest = snapshots[0]; // already sorted desc
+      onFetch(latest.year, latest.month);
+    } else {
+      onFetch();
+    }
+  };
+
   return (
+    <div className="space-y-4">
     <Card>
       <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2">
         <CardTitle className="text-base">ניתוח {label}</CardTitle>
         {hasActor && (
-          <Button size="sm" variant="outline" onClick={onFetch} disabled={fetching}>
+          <Button size="sm" variant="outline" onClick={handleRefresh} disabled={fetching}>
             {fetching ? <Loader2 className="animate-spin h-4 w-4 ml-1" /> : <RefreshCw className="h-4 w-4 ml-1" />}
-            שלוף נתונים
+            רענן נתונים
           </Button>
         )}
       </CardHeader>
@@ -477,43 +539,42 @@ function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewR
         {/* Table */}
         {snapshots.length === 0 ? (
           <p className="text-center text-muted-foreground text-sm py-8">
-            {hasActor ? "לחץ על \"שלוף נתונים\" כדי להתחיל" : "הגדר טוקן Apify ו-Actor ID בהגדרות"}
+            {hasActor ? "לחץ על \"רענן נתונים\" כדי להתחיל" : "הגדר טוקן Apify ו-Actor ID בהגדרות"}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>חודש</TableHead>
-                  <TableHead>מחיר ממוצע</TableHead>
-                  <TableHead>גודל מדגם</TableHead>
-                  <TableHead>סטיית תקן</TableHead>
-                  <TableHead className="w-10"></TableHead>
+                  <TableHead className="text-center">חודש</TableHead>
+                  <TableHead className="text-center">מחיר ממוצע</TableHead>
+                  <TableHead className="text-center">גודל מדגם</TableHead>
+                  <TableHead className="text-center">סטיית תקן</TableHead>
+                  <TableHead className="text-center w-10"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {snapshots.map(s => {
-                  // Inline sparkline data (last 6 months up to this snapshot)
-                  return (
+                {snapshots.map(s => (
                     <TableRow key={s.id}>
-                      <TableCell className="whitespace-nowrap">{MONTHS[s.month - 1]} {s.year}</TableCell>
-                      <TableCell className="font-medium">{fmt(s.avg_price)}</TableCell>
-                      <TableCell>{s.sample_size}</TableCell>
-                      <TableCell>{fmt(s.std_deviation)}</TableCell>
-                      <TableCell>
+                      <TableCell className="text-center whitespace-nowrap">{MONTHS[s.month - 1]} {s.year}</TableCell>
+                      <TableCell className="text-center font-medium">{fmt(s.avg_price)}</TableCell>
+                      <TableCell className="text-center">{s.sample_size}</TableCell>
+                      <TableCell className="text-center">{fmt(s.std_deviation)}</TableCell>
+                      <TableCell className="text-center">
                         <Button size="icon" variant="ghost" onClick={() => onViewRaw(s.raw_data || [])}>
                           <Eye className="h-4 w-4" />
                         </Button>
                       </TableCell>
                     </TableRow>
-                  );
-                })}
+                ))}
               </TableBody>
             </Table>
           </div>
         )}
       </CardContent>
     </Card>
+    <NeighbourhoodHeatmap snapshots={snapshots} />
+    </div>
   );
 }
 
