@@ -1,0 +1,1 @@
+ALTER TABLE public.properties ADD COLUMN monthly_rent_income numeric NOT NULL DEFAULT 0;

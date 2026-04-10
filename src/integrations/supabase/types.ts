@@ -441,6 +441,7 @@ export type Database = {
           created_at: string
           house_number: string
           id: string
+          monthly_rent_income: number
           purchase_price: number
           street: string
           title: string
@@ -457,6 +458,7 @@ export type Database = {
           created_at?: string
           house_number?: string
           id?: string
+          monthly_rent_income?: number
           purchase_price?: number
           street?: string
           title: string
@@ -473,6 +475,7 @@ export type Database = {
           created_at?: string
           house_number?: string
           id?: string
+          monthly_rent_income?: number
           purchase_price?: number
           street?: string
           title?: string
