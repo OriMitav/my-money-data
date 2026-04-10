@@ -145,11 +145,22 @@ Deno.serve(async (req) => {
       });
     }
 
-    const items: any[] = await itemsRes.json();
+    let items: any[] = await itemsRes.json();
     if (items.length > 0) {
       console.log("Sample Apify item keys:", JSON.stringify(Object.keys(items[0])));
       console.log("Sample Apify item:", JSON.stringify(items[0]));
     }
+
+    // Filter by rooms if specified in actor_input
+    const requestedRooms = actorInput.rooms;
+    if (requestedRooms !== undefined && requestedRooms !== null && requestedRooms !== "") {
+      const roomsNum = Number(requestedRooms);
+      if (!isNaN(roomsNum)) {
+        items = items.filter((item: any) => Number(item.rooms) === roomsNum);
+        console.log(`Filtered to ${items.length} items with ${roomsNum} rooms`);
+      }
+    }
+
     const prices = items.map((i: any) => Number(i.price)).filter((p: number) => !Number.isNaN(p) && p > 0);
     const sampleSize = prices.length;
     const avgPrice = sampleSize > 0 ? prices.reduce((a, b) => a + b, 0) / sampleSize : 0;
