@@ -30,21 +30,21 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { property_id, apify_token, actor_id, type, year, month } = body;
+    const { property_id, apify_token, actor_id, type, year, month, city } = body;
 
-    if (!property_id || !apify_token || !actor_id || !type || !year || !month) {
-      return new Response(JSON.stringify({ error: "Missing required fields" }), {
+    if (!property_id || !apify_token || !actor_id || !type || !year || !month || !city) {
+      return new Response(JSON.stringify({ error: "Missing required fields (including city)" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Run the Apify actor
+    // Run the Apify actor with required city input
     const runUrl = `https://api.apify.com/v2/acts/${actor_id}/run-sync-get-dataset-items?token=${apify_token}`;
     const apifyRes = await fetch(runUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ city }),
     });
 
     if (!apifyRes.ok) {
