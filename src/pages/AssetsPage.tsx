@@ -390,23 +390,23 @@ export default function AssetsPage() {
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-auto max-h-[60vh]">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 bg-background z-10">
                 <TableRow>
-                  <TableHead>שכונה</TableHead>
-                  <TableHead>כתובת</TableHead>
-                  <TableHead>שטח (מ״ר)</TableHead>
-                  <TableHead>חדרים</TableHead>
-                  <TableHead>מחיר</TableHead>
+                  <TableHead className="text-center">שכונה</TableHead>
+                  <TableHead className="text-center">כתובת</TableHead>
+                  <TableHead className="text-center">שטח (מ״ר)</TableHead>
+                  <TableHead className="text-center">חדרים</TableHead>
+                  <TableHead className="text-center">מחיר</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(drawerData || []).map((item: any, i: number) => (
                   <TableRow key={i}>
-                    <TableCell className="text-xs">{item.neighbourhood}</TableCell>
-                    <TableCell className="text-xs">{item.address}</TableCell>
-                    <TableCell>{item.areaSqm}</TableCell>
-                    <TableCell>{item.rooms}</TableCell>
-                    <TableCell>{fmt(item.price)}</TableCell>
+                    <TableCell className="text-xs text-center">{item.neighbourhood}</TableCell>
+                    <TableCell className="text-xs text-center">{item.address}</TableCell>
+                    <TableCell className="text-center">{item.areaSqm ?? item.area ?? "—"}</TableCell>
+                    <TableCell className="text-center">{item.rooms}</TableCell>
+                    <TableCell className="text-center">{fmt(item.price)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
