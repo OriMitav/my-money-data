@@ -107,7 +107,7 @@ export default function AssetsPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...vals }: Partial<Property> & { id: string }) => {
-      const { error } = await supabase.from("properties").update(vals).eq("id", id);
+      const { error } = await supabase.from("properties").update(vals as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["properties"] }); toast.success("עודכן"); },
