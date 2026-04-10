@@ -551,7 +551,7 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
               <textarea
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[60px]"
                 value={typeof val("apify_sale_input") === "object" ? JSON.stringify(val("apify_sale_input"), null, 2) : val("apify_sale_input") || "{}"}
-                onChange={e => { try { setF(p => ({ ...p, apify_sale_input: JSON.parse(e.target.value) })); } catch {} }}
+                onChange={e => { try { const parsed = JSON.parse(e.target.value); setF(p => ({ ...p, apify_sale_input: parsed })); } catch {} }}
                 placeholder='{"city": 1200, "rooms": 4}'
               />
             </div>
@@ -560,7 +560,7 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
               <textarea
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[60px]"
                 value={typeof val("apify_rent_input") === "object" ? JSON.stringify(val("apify_rent_input"), null, 2) : val("apify_rent_input") || "{}"}
-                onChange={e => { try { setF(p => ({ ...p, apify_rent_input: JSON.parse(e.target.value) })); } catch {} }}
+                onChange={e => { try { const parsed = JSON.parse(e.target.value); setF(p => ({ ...p, apify_rent_input: parsed })); } catch {} }}
                 placeholder='{"city": 1200, "rooms": 4}'
               />
             </div>
