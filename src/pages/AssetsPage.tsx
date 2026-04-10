@@ -10,15 +10,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose, DrawerDescription } from "@/components/ui/drawer";
-import { Plus, Building2, Settings2, Home, Loader2, RefreshCw, ArrowLeft, Eye, AlertTriangle } from "lucide-react";
+import { Plus, Building2, Settings2, Home, Loader2, RefreshCw, ArrowLeft, Eye, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import modiinPolygons from "@/assets/modiin_polygons.json";
 
 const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
+const pct = (n: number) => (n * 100).toFixed(1) + "%";
 
 interface Property {
   id: string;
@@ -28,6 +30,7 @@ interface Property {
   street: string;
   house_number: string;
   purchase_price: number;
+  monthly_rent_income: number;
   apify_token: string;
   apify_actor_sale_id: string;
   apify_actor_rent_id: string;
@@ -251,10 +254,9 @@ export default function AssetsPage() {
                       </div>
                       <div>
                         <p className="text-muted-foreground text-xs">תשואה גולמית</p>
-                        <p className="font-semibold">{grossYield !== null ? (grossYield * 100).toFixed(1) + "%" : "—"}</p>
+                        <p className="font-semibold">{grossYield !== null ? pct(grossYield) : "—"}</p>
                       </div>
                     </div>
-                    {/* Sparkline */}
                     {getSparklineData(p.id, "sale").length > 1 && (
                       <div className="h-12">
                         <ResponsiveContainer width="100%" height="100%">
@@ -299,9 +301,28 @@ export default function AssetsPage() {
   const prop = selectedProperty;
   const snapRent = getSnapshotsForProperty(prop.id, "rent");
   const snapSale = getSnapshotsForProperty(prop.id, "sale");
-  const grossYield = calcGrossYield(prop);
+  const latestSale = getLatestSnapshot(prop.id, "sale");
+  const latestRent = getLatestSnapshot(prop.id, "rent");
 
-  const settingsForm = { ...prop };
+  const marketValue = latestSale?.avg_price ?? null;
+  const valueChange = marketValue !== null && prop.purchase_price > 0
+    ? ((marketValue - prop.purchase_price) / prop.purchase_price)
+    : null;
+
+  const monthlyRent = prop.monthly_rent_income || 0;
+  const yieldVsPurchase = monthlyRent > 0 && prop.purchase_price > 0
+    ? (monthlyRent * 12) / prop.purchase_price
+    : null;
+
+  const avgRent = latestRent?.avg_price ?? null;
+  const yieldAvgRentVsMarket = avgRent !== null && marketValue !== null && marketValue > 0
+    ? (avgRent * 12) / marketValue
+    : null;
+
+  const handleRentIncomeUpdate = (value: number) => {
+    updateMutation.mutate({ id: prop.id, monthly_rent_income: value } as any);
+    setSelectedProperty({ ...prop, monthly_rent_income: value });
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-0" dir="rtl">
@@ -322,24 +343,72 @@ export default function AssetsPage() {
         </Button>
       </div>
 
-      {/* Top metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-xs text-muted-foreground">מחיר קנייה</p>
-          <p className="text-lg font-bold">{fmt(prop.purchase_price)}</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-xs text-muted-foreground">שווי שוק</p>
-          <p className="text-lg font-bold">{getLatestSnapshot(prop.id, "sale")?.avg_price ? fmt(getLatestSnapshot(prop.id, "sale")!.avg_price) : "—"}</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-xs text-muted-foreground">שכירות ממוצעת</p>
-          <p className="text-lg font-bold">{getLatestSnapshot(prop.id, "rent")?.avg_price ? fmt(getLatestSnapshot(prop.id, "rent")!.avg_price) : "—"}</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4 text-center">
-          <p className="text-xs text-muted-foreground">תשואה גולמית</p>
-          <p className="text-lg font-bold text-primary">{grossYield !== null ? (grossYield * 100).toFixed(1) + "%" : "—"}</p>
-        </CardContent></Card>
+      {/* Two info cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Card 1: Purchase Price + Market Value + Value Change */}
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-xs text-muted-foreground mb-1">מחיר קנייה</p>
+            <p className="text-2xl font-bold">{fmt(prop.purchase_price)}</p>
+            <div className="mt-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">שווי שוק עדכני:</span>
+                <span className="text-sm font-semibold">{marketValue !== null ? fmt(marketValue) : "—"}</span>
+              </div>
+              {valueChange !== null && (
+                <div className="flex items-center gap-1">
+                  {valueChange >= 0
+                    ? <TrendingUp className="h-4 w-4 text-green-500" />
+                    : <TrendingDown className="h-4 w-4 text-red-500" />
+                  }
+                  <span className={`text-sm font-semibold ${valueChange >= 0 ? "text-green-500" : "text-red-500"}`}>
+                    {valueChange >= 0 ? "+" : ""}{pct(valueChange)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    ({valueChange >= 0 ? "+" : ""}{fmt(marketValue! - prop.purchase_price)})
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Card 2: Rental Income + Yields */}
+        <Card>
+          <CardContent className="p-5">
+            <p className="text-xs text-muted-foreground mb-1">שכירות נוכחית</p>
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                className="w-32 text-lg font-bold h-9"
+                value={monthlyRent || ""}
+                placeholder="0"
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  setSelectedProperty({ ...prop, monthly_rent_income: v });
+                }}
+                onBlur={e => handleRentIncomeUpdate(Number(e.target.value))}
+              />
+              <span className="text-xs text-muted-foreground">₪/חודש</span>
+              {yieldVsPurchase !== null && (
+                <span className="text-sm font-semibold text-primary mr-2">
+                  תשואה {pct(yieldVsPurchase)}
+                </span>
+              )}
+            </div>
+            <div className="mt-3 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">שכירות ממוצעת באזור:</span>
+                <span className="text-sm font-semibold">{avgRent !== null ? fmt(avgRent) : "—"}</span>
+                {yieldAvgRentVsMarket !== null && (
+                  <span className="text-xs text-muted-foreground">
+                    (תשואה {pct(yieldAvgRentVsMarket)} לפי שווי שוק)
+                  </span>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tabs */}
@@ -387,7 +456,7 @@ export default function AssetsPage() {
 
       {/* Raw data drawer */}
       <Drawer open={!!drawerData} onOpenChange={(o) => !o && setDrawerData(null)}>
-        <DrawerContent dir="rtl" className="max-h-[80vh]">
+        <DrawerContent dir="rtl" className="max-h-[80vh] z-[1000]">
           <DrawerHeader>
             <DrawerTitle>נתונים גולמיים ({drawerData?.length || 0} רשומות)</DrawerTitle>
             <DrawerDescription>רשימת הרשומות המלאה שנשלפה עבור החודש הנבחר.</DrawerDescription>
@@ -427,30 +496,6 @@ export default function AssetsPage() {
 
 // ===== Sub-components =====
 
-// Approximate coordinates for Modiin neighbourhoods
-const NEIGHBOURHOOD_COORDS: Record<string, [number, number]> = {
-  "מורשת": [31.9075, 35.0100],
-  "בוכמן": [31.9000, 35.0050],
-  "אבני חן": [31.8950, 35.0100],
-  "כסלו": [31.8920, 35.0150],
-  "עמק החולה": [31.8900, 35.0130],
-  "אודם": [31.9030, 34.9980],
-  "נופים": [31.9100, 35.0050],
-  "המרכז": [31.8980, 35.0080],
-  "ענבל": [31.8850, 35.0200],
-  "ליגד": [31.8870, 35.0050],
-  "כפר האורנים": [31.9180, 34.9900],
-  "שילת": [31.9200, 34.9850],
-  "מכבים": [31.8800, 35.0000],
-  "רעות": [31.8830, 35.0250],
-  "הפרחים": [31.9050, 35.0130],
-  "מתתיהו": [31.9120, 35.0020],
-  "יהודה המכבי": [31.8960, 35.0180],
-  "הגפן": [31.8940, 35.0060],
-  "משואה": [31.9060, 35.0000],
-  "עין גדי": [31.8970, 35.0020],
-};
-
 const MODIIN_CENTER: [number, number] = [31.897, 35.010];
 
 function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
@@ -459,7 +504,7 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
 
   const data = useMemo(() => {
     const latest = snapshots.length > 0 ? snapshots[0] : null;
-    if (!latest || !Array.isArray(latest.raw_data) || latest.raw_data.length === 0) return [];
+    if (!latest || !Array.isArray(latest.raw_data) || latest.raw_data.length === 0) return {};
     const map: Record<string, { count: number; totalPrice: number; totalArea: number }> = {};
     for (const item of latest.raw_data as any[]) {
       const hood = item.neighbourhood || item.neighborhood || "לא ידוע";
@@ -468,63 +513,75 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
       map[hood].totalPrice += Number(item.price) || 0;
       map[hood].totalArea += Number(item.areaSqm) || 0;
     }
-    let unknownIdx = 0;
-    return Object.entries(map)
-      .map(([name, v]) => {
-        let coords = NEIGHBOURHOOD_COORDS[name];
-        if (!coords) {
-          const angle = (unknownIdx * 137.5 * Math.PI) / 180;
-          const r = 0.003 + unknownIdx * 0.001;
-          coords = [MODIIN_CENTER[0] + r * Math.cos(angle), MODIIN_CENTER[1] + r * Math.sin(angle)];
-          unknownIdx++;
-        }
-        return {
-          name,
-          count: v.count,
-          avgPrice: Math.round(v.totalPrice / v.count),
-          avgArea: Math.round(v.totalArea / v.count),
-          coords,
-        };
-      })
-      .sort((a, b) => b.count - a.count);
+    return map;
   }, [snapshots]);
 
   useEffect(() => {
-    if (!mapRef.current || data.length === 0) return;
+    if (!mapRef.current || Object.keys(data).length === 0) return;
     if (leafletMap.current) {
       leafletMap.current.remove();
       leafletMap.current = null;
     }
 
-    const map = L.map(mapRef.current).setView(MODIIN_CENTER, 13);
+    const map = L.map(mapRef.current, { zoomControl: true }).setView(MODIIN_CENTER, 13);
     leafletMap.current = map;
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
 
-    const maxCount = Math.max(...data.map(d => d.count));
+    const maxCount = Math.max(...Object.values(data).map(d => d.count), 1);
 
-    data.forEach(d => {
-      const intensity = d.count / maxCount;
-      const radius = Math.max(12, intensity * 35);
-      L.circleMarker(d.coords as [number, number], {
-        radius,
-        fillColor: `hsl(20, 90%, ${55 - intensity * 25}%)`,
-        fillOpacity: 0.7 + intensity * 0.3,
-        color: "#c44",
-        weight: 1.5,
-      })
-        .bindPopup(
-          `<div dir="rtl" style="text-align:right;min-width:140px">
-            <div style="font-weight:bold;margin-bottom:4px">${d.name}</div>
-            <div>יחידות: <strong>${d.count}</strong></div>
-            <div>מחיר ממוצע: <strong>${fmt(d.avgPrice)}</strong></div>
-            <div>שטח ממוצע: <strong>${d.avgArea} מ״ר</strong></div>
-          </div>`
-        )
-        .addTo(map);
-    });
+    // Add GeoJSON polygons
+    L.geoJSON(modiinPolygons as any, {
+      style: (feature) => {
+        const name = feature?.properties?.name;
+        const hood = name ? data[name] : null;
+        const intensity = hood ? hood.count / maxCount : 0;
+        return {
+          fillColor: hood
+            ? `hsl(20, 90%, ${55 - intensity * 25}%)`
+            : "hsl(0, 0%, 85%)",
+          fillOpacity: hood ? 0.5 + intensity * 0.4 : 0.15,
+          color: hood ? "#c44" : "#999",
+          weight: hood ? 2 : 1,
+        };
+      },
+      onEachFeature: (feature, layer) => {
+        const name = feature.properties?.name;
+        const hood = name ? data[name] : null;
+
+        // Always show neighbourhood label
+        const center = (layer as any).getBounds?.()?.getCenter?.();
+        if (center) {
+          L.marker(center, {
+            icon: L.divIcon({
+              className: "neighbourhood-label",
+              html: `<span style="font-size:11px;font-weight:bold;color:#333;text-shadow:1px 1px 2px #fff,-1px -1px 2px #fff;white-space:nowrap">${name}</span>`,
+              iconSize: [0, 0],
+              iconAnchor: [0, 0],
+            }),
+          }).addTo(leafletMap.current!);
+        }
+
+        if (hood) {
+          const avgPrice = Math.round(hood.totalPrice / hood.count);
+          const avgArea = Math.round(hood.totalArea / hood.count);
+          layer.bindPopup(
+            `<div dir="rtl" style="text-align:right;min-width:140px">
+              <div style="font-weight:bold;margin-bottom:4px">${name}</div>
+              <div>יחידות: <strong>${hood.count}</strong></div>
+              <div>מחיר ממוצע: <strong>${fmt(avgPrice)}</strong></div>
+              <div>שטח ממוצע: <strong>${avgArea} מ״ר</strong></div>
+            </div>`
+          );
+        } else {
+          layer.bindPopup(
+            `<div dir="rtl" style="text-align:right"><div style="font-weight:bold">${name}</div><div>אין נתונים</div></div>`
+          );
+        }
+      },
+    }).addTo(map);
 
     return () => {
       map.remove();
@@ -532,10 +589,10 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
     };
   }, [data]);
 
-  if (data.length === 0) return null;
+  if (Object.keys(data).length === 0) return null;
 
   return (
-    <Card>
+    <Card className="relative z-0">
       <CardHeader className="pb-2"><CardTitle className="text-base">התפלגות לפי שכונות</CardTitle></CardHeader>
       <CardContent>
         <div ref={mapRef} className="h-[400px] rounded-lg overflow-hidden" dir="ltr" />
@@ -562,7 +619,7 @@ function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewR
 
   const handleRefresh = () => {
     if (snapshots.length > 0) {
-      const latest = snapshots[0]; // already sorted desc
+      const latest = snapshots[0];
       onFetch(latest.year, latest.month);
     } else {
       onFetch();
@@ -571,59 +628,57 @@ function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewR
 
   return (
     <div className="space-y-4">
-    <Card>
-      <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2">
-        <CardTitle className="text-base">ניתוח {label}</CardTitle>
-        {hasActor && (
-          <Button size="sm" variant="outline" onClick={handleRefresh} disabled={fetching}>
-            {fetching ? <Loader2 className="animate-spin h-4 w-4 ml-1" /> : <RefreshCw className="h-4 w-4 ml-1" />}
-            רענן נתונים
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>{error.message}</AlertTitle>
-            {error.details && <AlertDescription>{error.details}</AlertDescription>}
-          </Alert>
-        )}
+      <Card className="relative z-0">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-2">
+          <CardTitle className="text-base">ניתוח {label}</CardTitle>
+          {hasActor && (
+            <Button size="sm" variant="outline" onClick={handleRefresh} disabled={fetching}>
+              {fetching ? <Loader2 className="animate-spin h-4 w-4 ml-1" /> : <RefreshCw className="h-4 w-4 ml-1" />}
+              רענן נתונים
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>{error.message}</AlertTitle>
+              {error.details && <AlertDescription>{error.details}</AlertDescription>}
+            </Alert>
+          )}
 
-        {/* Chart */}
-        {chartData.length > 1 && (
-          <div className="h-48 sm:h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
-                <RTooltip formatter={(v: number) => fmt(v)} />
-                <Line type="monotone" dataKey="avg" name={`מחיר ממוצע`} stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+          {chartData.length > 1 && (
+            <div className="h-48 sm:h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
+                  <RTooltip formatter={(v: number) => fmt(v)} />
+                  <Line type="monotone" dataKey="avg" name={`מחיר ממוצע`} stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
-        {/* Table */}
-        {snapshots.length === 0 ? (
-          <p className="text-center text-muted-foreground text-sm py-8">
-            {hasActor ? "לחץ על \"רענן נתונים\" כדי להתחיל" : "הגדר טוקן Apify ו-Actor ID בהגדרות"}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-center">חודש</TableHead>
-                  <TableHead className="text-center">מחיר ממוצע</TableHead>
-                  <TableHead className="text-center">גודל מדגם</TableHead>
-                  <TableHead className="text-center">סטיית תקן</TableHead>
-                  <TableHead className="text-center w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {snapshots.map(s => (
+          {snapshots.length === 0 ? (
+            <p className="text-center text-muted-foreground text-sm py-8">
+              {hasActor ? "לחץ על \"רענן נתונים\" כדי להתחיל" : "הגדר טוקן Apify ו-Actor ID בהגדרות"}
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-center">חודש</TableHead>
+                    <TableHead className="text-center">מחיר ממוצע</TableHead>
+                    <TableHead className="text-center">גודל מדגם</TableHead>
+                    <TableHead className="text-center">סטיית תקן</TableHead>
+                    <TableHead className="text-center w-10"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {snapshots.map(s => (
                     <TableRow key={s.id}>
                       <TableCell className="text-center whitespace-nowrap">{MONTHS[s.month - 1]} {s.year}</TableCell>
                       <TableCell className="text-center font-medium">{fmt(s.avg_price)}</TableCell>
@@ -635,14 +690,14 @@ function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewR
                         </Button>
                       </TableCell>
                     </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-    <NeighbourhoodHeatmap snapshots={snapshots} />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <NeighbourhoodHeatmap snapshots={snapshots} />
     </div>
   );
 }
@@ -657,7 +712,6 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
 
   const val = (key: keyof Property) => (f[key] !== undefined ? f[key] : property[key]) as any;
 
-  // Extract structured fields from JSON inputs
   const saleInput = (f.apify_sale_input !== undefined ? f.apify_sale_input : property.apify_sale_input) as Record<string, any> || {};
   const rentInput = (f.apify_rent_input !== undefined ? f.apify_rent_input : property.apify_rent_input) as Record<string, any> || {};
 
@@ -670,12 +724,10 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
   const updateRentInput = (key: string, value: any) => {
     const current = { ...rentInput };
     if (value === "" || value === undefined) { delete current[key]; } else { current[key] = value; }
-    // Always ensure dealType is "rent" for rent input
     current.dealType = "rent";
     setF(p => ({ ...p, apify_rent_input: current }));
   };
 
-  // When saving, ensure rent input always has dealType: "rent"
   const handleSave = () => {
     const finalF = { ...f };
     const finalRent = { ...(finalF.apify_rent_input as Record<string, any> || rentInput) };
