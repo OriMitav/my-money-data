@@ -1,0 +1,19 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "properties": { "name": "הכרמים", "city": "מודיעין", "premium_percent": 15 }, "geometry": { "type": "Polygon", "coordinates": [[[34.995, 31.910], [35.015, 31.910], [35.015, 31.925], [34.995, 31.925], [34.995, 31.910]]] } },
+    { "type": "Feature", "properties": { "name": "אבני חן", "city": "מודיעין", "premium_percent": 22 }, "geometry": { "type": "Polygon", "coordinates": [[[34.980, 31.890], [34.995, 31.890], [34.995, 31.905], [34.980, 31.905], [34.980, 31.890]]] } },
+    { "type": "Feature", "properties": { "name": "מוריה", "city": "מודיעין", "premium_percent": 18 }, "geometry": { "type": "Polygon", "coordinates": [[[35.000, 31.875], [35.015, 31.875], [35.015, 31.890], [35.000, 31.890], [35.000, 31.875]]] } },
+    { "type": "Feature", "properties": { "name": "הציפורים", "city": "מודיעין", "premium_percent": 12 }, "geometry": { "type": "Polygon", "coordinates": [[[34.990, 31.895], [35.000, 31.895], [35.000, 31.902], [34.990, 31.902], [34.990, 31.895]]] } },
+    { "type": "Feature", "properties": { "name": "נופים", "city": "מודיעין", "premium_percent": 20 }, "geometry": { "type": "Polygon", "coordinates": [[[34.978, 31.892], [34.988, 31.892], [34.988, 31.900], [34.978, 31.900], [34.978, 31.892]]] } },
+    { "type": "Feature", "properties": { "name": "מורשת", "city": "מודיעין", "premium_percent": 25 }, "geometry": { "type": "Polygon", "coordinates": [[[34.965, 31.905], [34.975, 31.905], [34.975, 31.915], [34.965, 31.915], [34.965, 31.905]]] } },
+    { "type": "Feature", "properties": { "name": "המגינים", "city": "מודיעין", "premium_percent": 10 }, "geometry": { "type": "Polygon", "coordinates": [[[34.980, 31.905], [34.990, 31.905], [34.990, 31.915], [34.980, 31.915], [34.980, 31.905]]] } },
+    { "type": "Feature", "properties": { "name": "הנביאים", "city": "מודיעין", "premium_percent": 14 }, "geometry": { "type": "Polygon", "coordinates": [[[34.990, 31.905], [34.995, 31.905], [34.995, 31.910], [34.990, 31.910], [34.990, 31.905]]] } },
+    { "type": "Feature", "properties": { "name": "הפרחים", "city": "מודיעין", "premium_percent": 16 }, "geometry": { "type": "Polygon", "coordinates": [[[35.000, 31.902], [35.010, 31.902], [35.010, 31.910], [35.000, 31.910], [35.000, 31.902]]] } },
+    { "type": "Feature", "properties": { "name": "הנחלים", "city": "מודיעין", "premium_percent": 11 }, "geometry": { "type": "Polygon", "coordinates": [[[34.995, 31.880], [35.005, 31.880], [35.005, 31.890], [34.995, 31.890], [34.995, 31.880]]] } },
+    { "type": "Feature", "properties": { "name": "השבטים", "city": "מודיעין", "premium_percent": 19 }, "geometry": { "type": "Polygon", "coordinates": [[[35.010, 31.880], [35.020, 31.880], [35.020, 31.890], [35.010, 31.890], [35.010, 31.880]]] } },
+    { "type": "Feature", "properties": { "name": "מע\"ר", "city": "מודיעין", "premium_percent": 8 }, "geometry": { "type": "Polygon", "coordinates": [[[34.995, 31.900], [35.005, 31.900], [35.005, 31.905], [34.995, 31.905], [34.995, 31.900]]] } },
+    { "type": "Feature", "properties": { "name": "מכבים", "city": "מודיעין", "premium_percent": 28 }, "geometry": { "type": "Polygon", "coordinates": [[[35.020, 31.900], [35.035, 31.900], [35.035, 31.915], [35.020, 31.915], [35.020, 31.900]]] } },
+    { "type": "Feature", "properties": { "name": "רעות", "city": "מודיעין", "premium_percent": 30 }, "geometry": { "type": "Polygon", "coordinates": [[[35.015, 31.885], [35.030, 31.885], [35.030, 31.900], [35.015, 31.900], [35.015, 31.885]]] } }
+  ]
+}
