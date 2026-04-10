@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { property_id, apify_token, actor_id, type, year, month, city } = body;
+    const { property_id, apify_token, actor_id, type, year, month, city, street, house_number } = body;
 
     if (!property_id || !apify_token || !actor_id || !type || !year || !month || !city) {
       return new Response(JSON.stringify({ error: "Missing required fields (including city)" }), {
@@ -39,23 +39,82 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Run the Apify actor with required city input
-    const runUrl = `https://api.apify.com/v2/acts/${actor_id}/run-sync-get-dataset-items?token=${apify_token}`;
-    const apifyRes = await fetch(runUrl, {
+    // Build actor input — pass all location fields the actor might need
+    const actorInput: Record<string, unknown> = {
+      city,
+      ...(street ? { street } : {}),
+      ...(house_number ? { houseNumber: house_number } : {}),
+    };
+
+    console.log("Apify actor input:", JSON.stringify(actorInput));
+    console.log("Actor ID:", actor_id, "Type:", type);
+
+    // Step 1: Start the actor run (async)
+    const startUrl = `https://api.apify.com/v2/acts/${actor_id}/runs?token=${apify_token}`;
+    const startRes = await fetch(startUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ city }),
+      body: JSON.stringify(actorInput),
     });
 
-    if (!apifyRes.ok) {
-      const errText = await apifyRes.text();
-      return new Response(JSON.stringify({ error: `Apify error [${apifyRes.status}]: ${errText}` }), {
+    if (!startRes.ok) {
+      const errText = await startRes.text();
+      console.error("Apify start error:", startRes.status, errText);
+      return new Response(JSON.stringify({ error: `Apify start error [${startRes.status}]: ${errText}` }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const items: any[] = await apifyRes.json();
+    const runData = await startRes.json();
+    const runId = runData?.data?.id;
+    if (!runId) {
+      return new Response(JSON.stringify({ error: "Failed to get run ID from Apify" }), {
+        status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("Apify run started:", runId);
+
+    // Step 2: Poll for completion (max ~4 minutes)
+    let status = runData?.data?.status;
+    const maxAttempts = 48; // 48 * 5s = 240s
+    for (let i = 0; i < maxAttempts && (status === "RUNNING" || status === "READY"); i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const pollRes = await fetch(
+        `https://api.apify.com/v2/actor-runs/${runId}?token=${apify_token}`
+      );
+      if (pollRes.ok) {
+        const pollData = await pollRes.json();
+        status = pollData?.data?.status;
+        console.log(`Poll ${i + 1}: status=${status}`);
+      }
+    }
+
+    if (status !== "SUCCEEDED") {
+      console.error("Apify run did not succeed. Final status:", status);
+      return new Response(
+        JSON.stringify({ error: `Apify run finished with status: ${status}. Check actor logs in Apify console for run ${runId}.` }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Step 3: Fetch dataset items
+    const datasetId = runData?.data?.defaultDatasetId;
+    const itemsRes = await fetch(
+      `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apify_token}`
+    );
+    if (!itemsRes.ok) {
+      const errText = await itemsRes.text();
+      return new Response(JSON.stringify({ error: `Failed to fetch dataset: ${errText}` }), {
+        status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const items: any[] = await itemsRes.json();
+    console.log("Fetched items count:", items.length);
 
     // Extract prices
     const prices = items
@@ -109,6 +168,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
+    console.error("Edge function error:", err);
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
