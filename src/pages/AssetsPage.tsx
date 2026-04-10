@@ -603,7 +603,7 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
       map.remove();
       leafletMap.current = null;
     };
-  }, [data]);
+  }, [data, polygonData]);
 
   if (Object.keys(data).length === 0) return null;
 
