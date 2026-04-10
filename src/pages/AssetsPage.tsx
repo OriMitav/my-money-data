@@ -29,6 +29,8 @@ interface Property {
   apify_token: string;
   apify_actor_sale_id: string;
   apify_actor_rent_id: string;
+  apify_rent_input: Record<string, any>;
+  apify_sale_input: Record<string, any>;
 }
 
 interface Snapshot {
@@ -105,7 +107,7 @@ export default function AssetsPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...vals }: Partial<Property> & { id: string }) => {
-      const { error } = await supabase.from("properties").update(vals).eq("id", id);
+      const { error } = await supabase.from("properties").update(vals as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["properties"] }); toast.success("עודכן"); },
@@ -131,6 +133,7 @@ export default function AssetsPage() {
     setFetchError(null);
     const now = new Date();
     try {
+      const actorInput = type === "sale" ? property.apify_sale_input : property.apify_rent_input;
       const res = await supabase.functions.invoke<FetchApifyResponse>("fetch-apify-data", {
         body: {
           property_id: property.id,
@@ -139,9 +142,7 @@ export default function AssetsPage() {
           type,
           year: now.getFullYear(),
           month: now.getMonth() + 1,
-          city: property.city,
-          street: property.street,
-          house_number: property.house_number,
+          actor_input: actorInput,
         },
       });
 
@@ -546,7 +547,23 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
             <h3 className="font-semibold text-sm text-muted-foreground">חיבור Apify</h3>
             <div><Label>טוקן API</Label><Input type="password" value={val("apify_token")} onChange={e => setF(p => ({ ...p, apify_token: e.target.value }))} placeholder="apify_api_..." /></div>
             <div><Label>Actor ID - מכירה</Label><Input value={val("apify_actor_sale_id")} onChange={e => setF(p => ({ ...p, apify_actor_sale_id: e.target.value }))} placeholder="username/actor-name" /></div>
+            <div><Label>Actor Input - מכירה (JSON)</Label>
+              <textarea
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[60px]"
+                value={typeof val("apify_sale_input") === "object" ? JSON.stringify(val("apify_sale_input"), null, 2) : val("apify_sale_input") || "{}"}
+                onChange={e => { try { setF(p => ({ ...p, apify_sale_input: JSON.parse(e.target.value) })); } catch {} }}
+                placeholder='{"city": 1200, "rooms": 4}'
+              />
+            </div>
             <div><Label>Actor ID - שכירות</Label><Input value={val("apify_actor_rent_id")} onChange={e => setF(p => ({ ...p, apify_actor_rent_id: e.target.value }))} placeholder="username/actor-name" /></div>
+            <div><Label>Actor Input - שכירות (JSON)</Label>
+              <textarea
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono min-h-[60px]"
+                value={typeof val("apify_rent_input") === "object" ? JSON.stringify(val("apify_rent_input"), null, 2) : val("apify_rent_input") || "{}"}
+                onChange={e => { try { setF(p => ({ ...p, apify_rent_input: JSON.parse(e.target.value) })); } catch {} }}
+                placeholder='{"city": 1200, "rooms": 4}'
+              />
+            </div>
           </div>
         </div>
         <DialogFooter>

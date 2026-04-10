@@ -17,10 +17,7 @@ interface ApiResponse<T = unknown> {
 const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
 
 function respond<T>(payload: ApiResponse<T>, status = 200) {
-  return new Response(JSON.stringify(payload), {
-    status,
-    headers: jsonHeaders,
-  });
+  return new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
 }
 
 Deno.serve(async (req) => {
@@ -30,9 +27,7 @@ Deno.serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return respond({ ok: false, error: "Missing auth" }, 401);
-    }
+    if (!authHeader) return respond({ ok: false, error: "Missing auth" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -40,27 +35,18 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return respond({ ok: false, error: "Unauthorized" }, 401);
-    }
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return respond({ ok: false, error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { property_id, apify_token, actor_id, type, year, month, city, street, house_number } = body;
+    const { property_id, apify_token, actor_id, type, year, month, actor_input } = body;
 
-    if (!property_id || !apify_token || !actor_id || !type || !year || !month || !city) {
-      return respond({ ok: false, error: "Missing required fields (including city)" }, 400);
+    if (!property_id || !apify_token || !actor_id || !type || !year || !month) {
+      return respond({ ok: false, error: "Missing required fields" }, 400);
     }
 
-    const actorInput: Record<string, unknown> = {
-      city,
-      ...(street ? { street } : {}),
-      ...(house_number ? { houseNumber: house_number } : {}),
-    };
+    // Use the actor_input as-is — this is what the user configured in the UI
+    const actorInput = actor_input && typeof actor_input === "object" ? actor_input : {};
 
     const startUrl = `https://api.apify.com/v2/acts/${actor_id}/runs?token=${apify_token}`;
     console.log("Apify actor input:", JSON.stringify(actorInput));
@@ -77,11 +63,7 @@ Deno.serve(async (req) => {
       return respond({
         ok: false,
         error: `Apify start error [${startRes.status}]`,
-        diagnostics: {
-          actorId: actor_id,
-          requestedUrl: startUrl,
-          stage: "start_run",
-        },
+        diagnostics: { actorId: actor_id, requestedUrl: startUrl, stage: "start_run" },
         data: { message: errText },
       });
     }
@@ -94,7 +76,7 @@ Deno.serve(async (req) => {
       return respond({
         ok: false,
         error: "Failed to get run ID from Apify",
-        diagnostics: { actorId: actor_id, requestedUrl: startUrl, stage: "start_run" },
+        diagnostics: { actorId: actor_id, stage: "start_run" },
       });
     }
 
@@ -102,26 +84,17 @@ Deno.serve(async (req) => {
     const maxAttempts = 48;
 
     for (let i = 0; i < maxAttempts && (status === "RUNNING" || status === "READY"); i++) {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      const pollUrl = `https://api.apify.com/v2/actor-runs/${runId}?token=${apify_token}`;
-      const pollRes = await fetch(pollUrl);
-
+      await new Promise((r) => setTimeout(r, 5000));
+      const pollRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apify_token}`);
       if (!pollRes.ok) {
         const errText = await pollRes.text();
         return respond({
           ok: false,
           error: "Failed while polling Apify run",
-          diagnostics: {
-            actorId: actor_id,
-            runId,
-            status,
-            requestedUrl: pollUrl,
-            stage: "poll_run",
-          },
+          diagnostics: { actorId: actor_id, runId, status, stage: "poll_run" },
           data: { message: errText },
         });
       }
-
       const pollData = await pollRes.json();
       status = pollData?.data?.status;
       datasetId = pollData?.data?.defaultDatasetId ?? datasetId;
@@ -129,63 +102,49 @@ Deno.serve(async (req) => {
     }
 
     if (status !== "SUCCEEDED") {
+      // Fetch the statusMessage from the run for better diagnostics
+      let statusMessage = "";
+      try {
+        const runInfoRes = await fetch(`https://api.apify.com/v2/actor-runs/${runId}?token=${apify_token}`);
+        if (runInfoRes.ok) {
+          const runInfo = await runInfoRes.json();
+          statusMessage = runInfo?.data?.statusMessage || "";
+        }
+      } catch (_) { /* ignore */ }
+
       return respond({
         ok: false,
-        error: "ריצת Apify נכשלה",
-        diagnostics: {
-          actorId: actor_id,
-          runId,
-          status,
-          requestedUrl: startUrl,
-          stage: "run_failed",
-        },
+        error: statusMessage || "ריצת Apify נכשלה",
+        diagnostics: { actorId: actor_id, runId, status, stage: "run_failed" },
       });
     }
 
     if (!datasetId) {
       return respond({
         ok: false,
-        error: "Apify finished successfully but no dataset was returned",
-        diagnostics: {
-          actorId: actor_id,
-          runId,
-          status,
-          requestedUrl: startUrl,
-          stage: "missing_dataset",
-        },
+        error: "Apify finished but no dataset returned",
+        diagnostics: { actorId: actor_id, runId, status, stage: "missing_dataset" },
       });
     }
 
-    const itemsUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apify_token}`;
-    const itemsRes = await fetch(itemsUrl);
-
+    const itemsRes = await fetch(`https://api.apify.com/v2/datasets/${datasetId}/items?token=${apify_token}`);
     if (!itemsRes.ok) {
       const errText = await itemsRes.text();
       return respond({
         ok: false,
-        error: "Failed to fetch Apify dataset items",
-        diagnostics: {
-          actorId: actor_id,
-          runId,
-          status,
-          requestedUrl: itemsUrl,
-          stage: "fetch_dataset",
-        },
+        error: "Failed to fetch dataset items",
+        diagnostics: { actorId: actor_id, runId, stage: "fetch_dataset" },
         data: { message: errText },
       });
     }
 
     const items: any[] = await itemsRes.json();
-    const prices = items
-      .map((item: any) => Number(item.price))
-      .filter((p: number) => !Number.isNaN(p) && p > 0);
-
+    const prices = items.map((i: any) => Number(i.price)).filter((p: number) => !Number.isNaN(p) && p > 0);
     const sampleSize = prices.length;
-    const avgPrice = sampleSize > 0 ? prices.reduce((a: number, b: number) => a + b, 0) / sampleSize : 0;
-    const stdDev =
-      sampleSize > 1
-        ? Math.sqrt(prices.reduce((sum: number, p: number) => sum + Math.pow(p - avgPrice, 2), 0) / (sampleSize - 1))
-        : 0;
+    const avgPrice = sampleSize > 0 ? prices.reduce((a, b) => a + b, 0) / sampleSize : 0;
+    const stdDev = sampleSize > 1
+      ? Math.sqrt(prices.reduce((sum, p) => sum + Math.pow(p - avgPrice, 2), 0) / (sampleSize - 1))
+      : 0;
 
     const rawData = items.map((item: any) => ({
       neighbourhood: item.neighbourhood || item.neighborhood || "",
@@ -218,13 +177,7 @@ Deno.serve(async (req) => {
       return respond({ ok: false, error: snapError.message, diagnostics: { stage: "save_snapshot" } }, 500);
     }
 
-    return respond({
-      ok: true,
-      data: {
-        snapshot,
-        itemCount: items.length,
-      },
-    });
+    return respond({ ok: true, data: { snapshot, itemCount: items.length } });
   } catch (err) {
     console.error("Edge function error:", err);
     return respond({ ok: false, error: String(err), diagnostics: { stage: "unexpected" } }, 500);

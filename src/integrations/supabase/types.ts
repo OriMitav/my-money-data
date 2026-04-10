@@ -434,6 +434,8 @@ export type Database = {
         Row: {
           apify_actor_rent_id: string
           apify_actor_sale_id: string
+          apify_rent_input: Json
+          apify_sale_input: Json
           apify_token: string
           city: string
           created_at: string
@@ -448,6 +450,8 @@ export type Database = {
         Insert: {
           apify_actor_rent_id?: string
           apify_actor_sale_id?: string
+          apify_rent_input?: Json
+          apify_sale_input?: Json
           apify_token?: string
           city?: string
           created_at?: string
@@ -462,6 +466,8 @@ export type Database = {
         Update: {
           apify_actor_rent_id?: string
           apify_actor_sale_id?: string
+          apify_rent_input?: Json
+          apify_sale_input?: Json
           apify_token?: string
           city?: string
           created_at?: string
