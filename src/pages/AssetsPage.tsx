@@ -8,11 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
-import { Plus, Building2, Settings2, TrendingUp, Home, Loader2, RefreshCw, ArrowLeft, Eye } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose, DrawerDescription } from "@/components/ui/drawer";
+import { Plus, Building2, Settings2, Home, Loader2, RefreshCw, ArrowLeft, Eye, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer } from "recharts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
@@ -42,6 +43,23 @@ interface Snapshot {
   raw_data: any[];
 }
 
+interface FetchApifyResponse {
+  ok: boolean;
+  data?: {
+    snapshot?: Snapshot;
+    itemCount?: number;
+    message?: string;
+  };
+  error?: string;
+  diagnostics?: {
+    actorId?: string;
+    runId?: string;
+    status?: string;
+    requestedUrl?: string;
+    stage?: string;
+  };
+}
+
 export default function AssetsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -51,6 +69,7 @@ export default function AssetsPage() {
   const [drawerData, setDrawerData] = useState<any[] | null>(null);
   const [fetchingType, setFetchingType] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("rent");
+  const [fetchError, setFetchError] = useState<{ message: string; details?: string } | null>(null);
 
   // Form state
   const [form, setForm] = useState({ title: "", city: "", street: "", house_number: "", purchase_price: 0, apify_token: "", apify_actor_sale_id: "", apify_actor_rent_id: "" });
@@ -109,10 +128,10 @@ export default function AssetsPage() {
       return;
     }
     setFetchingType(type);
+    setFetchError(null);
     const now = new Date();
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await supabase.functions.invoke("fetch-apify-data", {
+      const res = await supabase.functions.invoke<FetchApifyResponse>("fetch-apify-data", {
         body: {
           property_id: property.id,
           apify_token: property.apify_token,
@@ -125,11 +144,32 @@ export default function AssetsPage() {
           house_number: property.house_number,
         },
       });
-      if (res.error) throw res.error;
-      toast.success(`נשלפו ${res.data?.itemCount || 0} רשומות`);
+
+      if (res.error) {
+        throw new Error(res.error.message || "שגיאה בשליפת נתונים");
+      }
+
+      if (!res.data?.ok) {
+        const details = [
+          res.data?.diagnostics?.status ? `סטטוס: ${res.data.diagnostics.status}` : null,
+          res.data?.diagnostics?.runId ? `Run ID: ${res.data.diagnostics.runId}` : null,
+          res.data?.diagnostics?.stage ? `שלב: ${res.data.diagnostics.stage}` : null,
+        ].filter(Boolean).join(" • ");
+
+        setFetchError({
+          message: res.data?.error || "שליפת הנתונים נכשלה",
+          details: details || res.data?.data?.message,
+        });
+        toast.error(res.data?.error || "שליפת הנתונים נכשלה");
+        return;
+      }
+
+      toast.success(`נשלפו ${res.data.data?.itemCount || 0} רשומות`);
       qc.invalidateQueries({ queryKey: ["property_snapshots"] });
     } catch (e: any) {
-      toast.error(e.message || "שגיאה בשליפת נתונים");
+      const message = e.message || "שגיאה בשליפת נתונים";
+      setFetchError({ message });
+      toast.error(message);
     } finally {
       setFetchingType(null);
     }
@@ -229,7 +269,7 @@ export default function AssetsPage() {
         {/* Create dialog */}
         <Dialog open={showCreate} onOpenChange={setShowCreate}>
           <DialogContent className="max-w-md" dir="rtl">
-            <DialogHeader><DialogTitle>הוסף נכס</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>הוסף נכס</DialogTitle><DialogDescription>הזן פרטי נכס בסיסיים כדי להתחיל לעקוב אחריו.</DialogDescription></DialogHeader>
             <div className="space-y-3">
               <div><Label>כותרת</Label><Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} /></div>
               <div className="grid grid-cols-3 gap-2">
@@ -312,6 +352,7 @@ export default function AssetsPage() {
             fetching={fetchingType === "rent"}
             hasActor={!!prop.apify_actor_rent_id && !!prop.apify_token}
             onViewRaw={setDrawerData}
+            error={activeTab === "rent" ? fetchError : null}
           />
         </TabsContent>
 
@@ -323,6 +364,7 @@ export default function AssetsPage() {
             fetching={fetchingType === "sale"}
             hasActor={!!prop.apify_actor_sale_id && !!prop.apify_token}
             onViewRaw={setDrawerData}
+            error={activeTab === "sale" ? fetchError : null}
           />
         </TabsContent>
       </Tabs>
@@ -343,6 +385,7 @@ export default function AssetsPage() {
         <DrawerContent dir="rtl" className="max-h-[80vh]">
           <DrawerHeader>
             <DrawerTitle>נתונים גולמיים ({drawerData?.length || 0} רשומות)</DrawerTitle>
+            <DrawerDescription>רשימת הרשומות המלאה שנשלפה עבור החודש הנבחר.</DrawerDescription>
           </DrawerHeader>
           <div className="px-4 pb-4 overflow-auto max-h-[60vh]">
             <Table>
@@ -379,13 +422,14 @@ export default function AssetsPage() {
 
 // ===== Sub-components =====
 
-function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewRaw }: {
+function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewRaw, error }: {
   snapshots: Snapshot[];
   label: string;
   onFetch: () => void;
   fetching: boolean;
   hasActor: boolean;
   onViewRaw: (data: any[]) => void;
+  error: { message: string; details?: string } | null;
 }) {
   const chartData = useMemo(() => {
     return [...snapshots].reverse().map(s => ({
@@ -406,6 +450,14 @@ function SnapshotMatrix({ snapshots, label, onFetch, fetching, hasActor, onViewR
         )}
       </CardHeader>
       <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>{error.message}</AlertTitle>
+            {error.details && <AlertDescription>{error.details}</AlertDescription>}
+          </Alert>
+        )}
+
         {/* Chart */}
         {chartData.length > 1 && (
           <div className="h-48 sm:h-64">
@@ -477,7 +529,7 @@ function PropertySettingsDialog({ open, onOpenChange, property, onSave }: {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg" dir="rtl">
-        <DialogHeader><DialogTitle>הגדרות נכס</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>הגדרות נכס</DialogTitle><DialogDescription>עריכת פרטי נכס וחיבור השליפה האוטומטית.</DialogDescription></DialogHeader>
         <div className="space-y-4 max-h-[60vh] overflow-y-auto">
           <div className="space-y-3">
             <h3 className="font-semibold text-sm text-muted-foreground">פרטי נכס</h3>
