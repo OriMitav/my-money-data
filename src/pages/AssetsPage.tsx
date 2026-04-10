@@ -499,8 +499,24 @@ export default function AssetsPage() {
 const MODIIN_CENTER: [number, number] = [31.897, 35.010];
 
 function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
+  const { user } = useAuth();
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<L.Map | null>(null);
+
+  // Load GeoJSON from DB, fallback to static file
+  const { data: dbLayer } = useQuery({
+    queryKey: ["geojson-layer", user?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("geojson_layers")
+        .select("geojson")
+        .eq("name", "default")
+        .maybeSingle();
+      return data?.geojson || null;
+    },
+    enabled: !!user,
+  });
+  const polygonData = dbLayer || modiinPolygons;
 
   const data = useMemo(() => {
     const latest = snapshots.length > 0 ? snapshots[0] : null;
