@@ -533,22 +533,22 @@ function NeighbourhoodHeatmap({ snapshots }: { snapshots: Snapshot[] }) {
     const maxCount = Math.max(...Object.values(data).map(d => d.count), 1);
 
     // Add GeoJSON polygons
-    L.geoJSON(modiinPolygons as any, {
+    L.geoJSON(polygonData as any, {
       style: (feature) => {
-        const name = feature?.properties?.name;
+        const name = feature?.properties?.neighborhood || feature?.properties?.name;
         const hood = name ? data[name] : null;
         const intensity = hood ? hood.count / maxCount : 0;
         return {
           fillColor: hood
             ? `hsl(210, 80%, ${55 - intensity * 20}%)`
             : "hsl(210, 20%, 85%)",
-          fillOpacity: hood ? 0.2 + intensity * 0.2 : 0.1,
+          fillOpacity: hood ? 0.15 + intensity * 0.25 : 0.08,
           color: hood ? "hsl(210, 70%, 45%)" : "#aab",
           weight: hood ? 2 : 1,
         };
       },
       onEachFeature: (feature, layer) => {
-        const name = feature.properties?.name;
+        const name = feature.properties?.neighborhood || feature.properties?.name;
         const hood = name ? data[name] : null;
 
         // Always show neighbourhood label
