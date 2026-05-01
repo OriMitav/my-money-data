@@ -235,21 +235,22 @@ export function applyMapping(
     .map((row) => {
       let value: number;
       if (mapping.credit && mapping.debit) {
-        const creditVal = cleanValue(getCol(row, mapping.credit));
-        const debitVal = cleanValue(getCol(row, mapping.debit));
+        const creditVal = cleanValue(getCol(row, mapping.credit, "credit"));
+        const debitVal = cleanValue(getCol(row, mapping.debit, "debit"));
         value = creditVal > 0 ? creditVal : debitVal > 0 ? -debitVal : 0;
       } else if (mapping.value) {
-        value = cleanValue(getCol(row, mapping.value));
+        value = cleanValue(getCol(row, mapping.value, "value"));
       } else {
         value = 0;
       }
 
       return {
-        date: parseDate(getCol(row, mapping.date), mapping.dateFormat),
-        sourceRecipient: String(getCol(row, mapping.sourceRecipient) ?? ""),
+        date: parseDate(getCol(row, mapping.date, "date"), mapping.dateFormat),
+        sourceRecipient: String(getCol(row, mapping.sourceRecipient, "sourceRecipient") ?? ""),
         value,
         rawData: row,
       };
     })
     .filter((r) => r.date && r.value !== 0);
 }
+
