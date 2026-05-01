@@ -132,6 +132,37 @@ export default function UploadsPage() {
       const parsed = applyMapping(rows, mapping);
       if (parsed.length === 0) throw new Error("לא נמצאו שורות תקינות אחרי עיבוד הקובץ");
 
+      // Deduplicate within the file itself (date + recipient + value)
+      const seen = new Set<string>();
+      const uniqueParsed = parsed.filter((row) => {
+        const key = `${row.date}|${row.sourceRecipient.trim()}|${row.value}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      const fileDuplicates = parsed.length - uniqueParsed.length;
+
+      // Deduplicate against existing transactions of the same entity
+      const { data: existingTx } = await supabase
+        .from("transactions")
+        .select("date, source_recipient, value")
+        .eq("entity_id", entityId);
+      const existingKeys = new Set(
+        (existingTx || []).map(
+          (t) => `${t.date}|${(t.source_recipient || "").trim()}|${Number(t.value)}`
+        )
+      );
+      const finalParsed = uniqueParsed.filter(
+        (row) => !existingKeys.has(`${row.date}|${row.sourceRecipient.trim()}|${row.value}`)
+      );
+      const dbDuplicates = uniqueParsed.length - finalParsed.length;
+
+      if (finalParsed.length === 0) {
+        throw new Error(
+          `כל ${parsed.length} השורות בקובץ כבר קיימות במערכת — הועלה דוח כפול`
+        );
+      }
+
       // Upload file to storage
       const safeFileName = sanitizeStorageFileName(file.name);
       const storagePath = `${user!.id}/${safeFileName}`;
@@ -150,7 +181,7 @@ export default function UploadsPage() {
           storage_path: storagePath,
           month: parseInt(month),
           year: parseInt(year),
-          transaction_count: parsed.length,
+          transaction_count: finalParsed.length,
         })
         .select()
         .single();
@@ -158,8 +189,8 @@ export default function UploadsPage() {
 
       // Insert transactions in batches
       const BATCH_SIZE = 500;
-      for (let i = 0; i < parsed.length; i += BATCH_SIZE) {
-        const batch = parsed.slice(i, i + BATCH_SIZE).map((row) => ({
+      for (let i = 0; i < finalParsed.length; i += BATCH_SIZE) {
+        const batch = finalParsed.slice(i, i + BATCH_SIZE).map((row) => ({
           user_id: user!.id,
           entity_id: entityId,
           upload_id: uploadRecord.id,
@@ -172,7 +203,13 @@ export default function UploadsPage() {
         if (txError) throw txError;
       }
 
-      toast.success(`${parsed.length} תנועות יובאו בהצלחה`);
+      const skipped = fileDuplicates + dbDuplicates;
+      if (skipped > 0) {
+        toast.success(`${finalParsed.length} תנועות יובאו, ${skipped} כפילויות דולגו`);
+      } else {
+        toast.success(`${finalParsed.length} תנועות יובאו בהצלחה`);
+      }
+
       queryClient.invalidateQueries({ queryKey: ["uploads"] });
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       setOpen(false);

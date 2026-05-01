@@ -33,9 +33,23 @@ function cleanValue(raw: unknown): number {
 }
 
 function parseDate(raw: unknown, format: ColumnMapping["dateFormat"] = "DMY"): string {
-  if (!raw) return "";
+  if (raw === null || raw === undefined || raw === "") return "";
+
+  // Excel serial as a real number (e.g., 46059 → 2026-02-10)
+  if (typeof raw === "number" && raw > 1000 && raw < 100000) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const d2 = new Date(excelEpoch.getTime() + raw * 86400000);
+    if (!isNaN(d2.getTime())) return d2.toISOString().split("T")[0];
+  }
+
+  // JS Date object (xlsx may return Date instances)
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    return raw.toISOString().split("T")[0];
+  }
+
   const str = String(raw).trim();
 
+  // DD/MM/YYYY or MM/DD/YYYY (configurable)
   const parts = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (parts) {
     let year = parts[3];
@@ -49,19 +63,29 @@ function parseDate(raw: unknown, format: ColumnMapping["dateFormat"] = "DMY"): s
     return `${year}-${month}-${day}`;
   }
 
+  // ISO yyyy-mm-dd (fast path, avoids Date weirdness)
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  // Excel serial as a string
+  if (/^\d{4,5}$/.test(str)) {
+    const n = parseInt(str, 10);
+    if (n > 1000 && n < 100000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const d2 = new Date(excelEpoch.getTime() + n * 86400000);
+      if (!isNaN(d2.getTime())) return d2.toISOString().split("T")[0];
+    }
+  }
+
+  // Fallback: native Date parsing
   const d = new Date(str);
-  if (!isNaN(d.getTime())) {
+  if (!isNaN(d.getTime()) && d.getFullYear() > 1900 && d.getFullYear() < 2100) {
     return d.toISOString().split("T")[0];
   }
 
-  if (/^\d{5}$/.test(str)) {
-    const excelEpoch = new Date(1899, 11, 30);
-    const d2 = new Date(excelEpoch.getTime() + parseInt(str) * 86400000);
-    return d2.toISOString().split("T")[0];
-  }
-
-  return str;
+  return "";
 }
+
 
 /**
  * Detect the header row in raw sheet data by searching for known column names.
@@ -166,16 +190,63 @@ export function parseXLSX(file: File): Promise<Record<string, unknown>[]> {
 }
 
 /**
- * Look up a value in a row, trying both the exact key and trimmed keys
- * to handle column mapping or header whitespace mismatches.
+ * Normalize a header/key for fuzzy matching:
+ * - removes line breaks, BOM, RTL marks
+ * - collapses whitespace
+ * - lowercases
  */
-function getCol(row: Record<string, unknown>, key: string): unknown {
+function normalizeKey(s: string): string {
+  return String(s ?? "")
+    .replace(/[\u200F\u200E\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\uFEFF]/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+// Hebrew/English aliases for common bank/credit-card columns
+const HEADER_ALIASES: Record<string, string[]> = {
+  date: ["date", "תאריך", "תאריך עסקה", "תאריך חיוב", "תאריך הרכישה", "תאריך פעולה"],
+  sourceRecipient: [
+    "from/to", "description", "details", "merchant",
+    "שם בית עסק", "תיאור", "פרטים", "מוטב", "שם המוטב", "שם בית העסק", "שם בית-עסק",
+  ],
+  value: [
+    "value", "amount", "charge", "charging value", "סכום", "סכום חיוב", "סכום עסקה", "סכום בש״ח", 'סכום בש"ח', "סכום בשח",
+  ],
+  credit: ["credit", "זכות", "הכנסה"],
+  debit: ["debit", "חובה", "הוצאה"],
+};
+
+/**
+ * Look up a value in a row using fuzzy matching (line breaks, spaces, case insensitive).
+ * Falls back to known Hebrew/English aliases if direct match fails.
+ */
+function getCol(row: Record<string, unknown>, key: string, aliasGroup?: keyof typeof HEADER_ALIASES): unknown {
   if (key in row) return row[key];
   const trimmed = key.trim();
   if (trimmed in row) return row[trimmed];
-  // Try matching trimmed row keys against trimmed mapping key
+
+  const normTarget = normalizeKey(key);
+  // Build a normalized lookup of row keys
   for (const k of Object.keys(row)) {
-    if (k.trim() === trimmed) return row[k];
+    if (normalizeKey(k) === normTarget) return row[k];
+  }
+  // Partial / contains match (e.g. "תאריך" matches "תאריך עסקה")
+  for (const k of Object.keys(row)) {
+    const nk = normalizeKey(k);
+    if (nk.includes(normTarget) || normTarget.includes(nk)) return row[k];
+  }
+  // Try aliases for the field
+  if (aliasGroup) {
+    const aliases = HEADER_ALIASES[aliasGroup] || [];
+    for (const alias of aliases) {
+      const na = normalizeKey(alias);
+      for (const k of Object.keys(row)) {
+        const nk = normalizeKey(k);
+        if (nk === na || nk.includes(na) || na.includes(nk)) return row[k];
+      }
+    }
   }
   return undefined;
 }
@@ -188,21 +259,22 @@ export function applyMapping(
     .map((row) => {
       let value: number;
       if (mapping.credit && mapping.debit) {
-        const creditVal = cleanValue(getCol(row, mapping.credit));
-        const debitVal = cleanValue(getCol(row, mapping.debit));
+        const creditVal = cleanValue(getCol(row, mapping.credit, "credit"));
+        const debitVal = cleanValue(getCol(row, mapping.debit, "debit"));
         value = creditVal > 0 ? creditVal : debitVal > 0 ? -debitVal : 0;
       } else if (mapping.value) {
-        value = cleanValue(getCol(row, mapping.value));
+        value = cleanValue(getCol(row, mapping.value, "value"));
       } else {
         value = 0;
       }
 
       return {
-        date: parseDate(getCol(row, mapping.date), mapping.dateFormat),
-        sourceRecipient: String(getCol(row, mapping.sourceRecipient) ?? ""),
+        date: parseDate(getCol(row, mapping.date, "date"), mapping.dateFormat),
+        sourceRecipient: String(getCol(row, mapping.sourceRecipient, "sourceRecipient") ?? ""),
         value,
         rawData: row,
       };
     })
     .filter((r) => r.date && r.value !== 0);
 }
+
