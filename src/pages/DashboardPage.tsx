@@ -333,8 +333,9 @@ export default function DashboardPage() {
   const checkingBalance = Number((pensionSettings as { checking_balance?: number } | null)?.checking_balance || 0);
 
   // Savings pie remains non-pension and non-children, but totals match Pension page logic
+  // Includes checking balance ("עו"ש") as a separate slice
   const savingsPieData = useMemo(() => {
-    return pensionFunds
+    const fundsSlices = pensionFunds
       .filter((f) => f.type !== "pension" && f.type !== "child_savings" && f.relevant !== false)
       .map((fund) => {
         const sorted = pensionEntries.filter((e) => e.fund_id === fund.id).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
@@ -346,7 +347,12 @@ export default function DashboardPage() {
         };
       })
       .filter((d) => d.value > 0);
-  }, [pensionFunds, pensionEntries]);
+
+    if (checkingBalance > 0) {
+      fundsSlices.push({ name: 'עו"ש', value: checkingBalance, accessible: true });
+    }
+    return fundsSlices;
+  }, [pensionFunds, pensionEntries, checkingBalance]);
 
   const relevantFundsSummary = useMemo(() => {
     return pensionFunds
@@ -577,6 +583,7 @@ export default function DashboardPage() {
     outerRadius,
     name,
     percent,
+    alwaysShow,
   }: {
     cx?: number;
     cy?: number;
@@ -584,8 +591,10 @@ export default function DashboardPage() {
     outerRadius?: number;
     name: string;
     percent: number;
+    alwaysShow?: boolean;
   }) => {
-    if (percent < 0.05 || cx == null || cy == null || midAngle == null || outerRadius == null) return null;
+    if (cx == null || cy == null || midAngle == null || outerRadius == null) return null;
+    if (!alwaysShow && percent < 0.05) return null;
     const radius = outerRadius + 18;
     const x = cx + radius * Math.cos((-midAngle * Math.PI) / 180);
     const y = cy + radius * Math.sin((-midAngle * Math.PI) / 180);
@@ -705,8 +714,10 @@ export default function DashboardPage() {
                           <StripedPattern key={d.name} id={`stripe-${i}`} color={PIE_COLORS[i % PIE_COLORS.length]} />
                         ))}
                       </defs>
-                      <Pie data={savingsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}>
+                      <Pie data={savingsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100}
+                        label={(props) => renderPieLabel({ ...props, alwaysShow: true })}
+                        labelLine={{ stroke: "hsl(0 0% 40%)", strokeWidth: 1 }}
+                        fontSize={11}>
                         {savingsPieData.map((d, i) => (
                           <Cell key={d.name}
                             fill={d.accessible ? PIE_COLORS[i % PIE_COLORS.length] : `url(#stripe-${i})`}
