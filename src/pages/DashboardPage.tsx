@@ -333,8 +333,9 @@ export default function DashboardPage() {
   const checkingBalance = Number((pensionSettings as { checking_balance?: number } | null)?.checking_balance || 0);
 
   // Savings pie remains non-pension and non-children, but totals match Pension page logic
+  // Includes checking balance ("עו"ש") as a separate slice
   const savingsPieData = useMemo(() => {
-    return pensionFunds
+    const fundsSlices = pensionFunds
       .filter((f) => f.type !== "pension" && f.type !== "child_savings" && f.relevant !== false)
       .map((fund) => {
         const sorted = pensionEntries.filter((e) => e.fund_id === fund.id).sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
@@ -346,7 +347,12 @@ export default function DashboardPage() {
         };
       })
       .filter((d) => d.value > 0);
-  }, [pensionFunds, pensionEntries]);
+
+    if (checkingBalance > 0) {
+      fundsSlices.push({ name: 'עו"ש', value: checkingBalance, accessible: true });
+    }
+    return fundsSlices;
+  }, [pensionFunds, pensionEntries, checkingBalance]);
 
   const relevantFundsSummary = useMemo(() => {
     return pensionFunds
