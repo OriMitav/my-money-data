@@ -33,9 +33,23 @@ function cleanValue(raw: unknown): number {
 }
 
 function parseDate(raw: unknown, format: ColumnMapping["dateFormat"] = "DMY"): string {
-  if (!raw) return "";
+  if (raw === null || raw === undefined || raw === "") return "";
+
+  // Excel serial as a real number (e.g., 46059 → 2026-02-10)
+  if (typeof raw === "number" && raw > 1000 && raw < 100000) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const d2 = new Date(excelEpoch.getTime() + raw * 86400000);
+    if (!isNaN(d2.getTime())) return d2.toISOString().split("T")[0];
+  }
+
+  // JS Date object (xlsx may return Date instances)
+  if (raw instanceof Date && !isNaN(raw.getTime())) {
+    return raw.toISOString().split("T")[0];
+  }
+
   const str = String(raw).trim();
 
+  // DD/MM/YYYY or MM/DD/YYYY (configurable)
   const parts = str.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
   if (parts) {
     let year = parts[3];
@@ -49,19 +63,29 @@ function parseDate(raw: unknown, format: ColumnMapping["dateFormat"] = "DMY"): s
     return `${year}-${month}-${day}`;
   }
 
+  // ISO yyyy-mm-dd (fast path, avoids Date weirdness)
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+  // Excel serial as a string
+  if (/^\d{4,5}$/.test(str)) {
+    const n = parseInt(str, 10);
+    if (n > 1000 && n < 100000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const d2 = new Date(excelEpoch.getTime() + n * 86400000);
+      if (!isNaN(d2.getTime())) return d2.toISOString().split("T")[0];
+    }
+  }
+
+  // Fallback: native Date parsing
   const d = new Date(str);
-  if (!isNaN(d.getTime())) {
+  if (!isNaN(d.getTime()) && d.getFullYear() > 1900 && d.getFullYear() < 2100) {
     return d.toISOString().split("T")[0];
   }
 
-  if (/^\d{5}$/.test(str)) {
-    const excelEpoch = new Date(1899, 11, 30);
-    const d2 = new Date(excelEpoch.getTime() + parseInt(str) * 86400000);
-    return d2.toISOString().split("T")[0];
-  }
-
-  return str;
+  return "";
 }
+
 
 /**
  * Detect the header row in raw sheet data by searching for known column names.
