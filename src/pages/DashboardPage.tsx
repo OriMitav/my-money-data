@@ -583,6 +583,7 @@ export default function DashboardPage() {
     outerRadius,
     name,
     percent,
+    alwaysShow,
   }: {
     cx?: number;
     cy?: number;
@@ -590,8 +591,10 @@ export default function DashboardPage() {
     outerRadius?: number;
     name: string;
     percent: number;
+    alwaysShow?: boolean;
   }) => {
-    if (percent < 0.05 || cx == null || cy == null || midAngle == null || outerRadius == null) return null;
+    if (cx == null || cy == null || midAngle == null || outerRadius == null) return null;
+    if (!alwaysShow && percent < 0.05) return null;
     const radius = outerRadius + 18;
     const x = cx + radius * Math.cos((-midAngle * Math.PI) / 180);
     const y = cy + radius * Math.sin((-midAngle * Math.PI) / 180);
