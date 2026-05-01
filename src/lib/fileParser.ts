@@ -166,16 +166,63 @@ export function parseXLSX(file: File): Promise<Record<string, unknown>[]> {
 }
 
 /**
- * Look up a value in a row, trying both the exact key and trimmed keys
- * to handle column mapping or header whitespace mismatches.
+ * Normalize a header/key for fuzzy matching:
+ * - removes line breaks, BOM, RTL marks
+ * - collapses whitespace
+ * - lowercases
  */
-function getCol(row: Record<string, unknown>, key: string): unknown {
+function normalizeKey(s: string): string {
+  return String(s ?? "")
+    .replace(/[\u200F\u200E\u202A\u202B\u202C\u202D\u202E\u2066\u2067\u2068\u2069\uFEFF]/g, "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+// Hebrew/English aliases for common bank/credit-card columns
+const HEADER_ALIASES: Record<string, string[]> = {
+  date: ["date", "תאריך", "תאריך עסקה", "תאריך חיוב", "תאריך הרכישה", "תאריך פעולה"],
+  sourceRecipient: [
+    "from/to", "description", "details", "merchant",
+    "שם בית עסק", "תיאור", "פרטים", "מוטב", "שם המוטב", "שם בית העסק", "שם בית-עסק",
+  ],
+  value: [
+    "value", "amount", "charge", "charging value", "סכום", "סכום חיוב", "סכום עסקה", "סכום בש״ח", 'סכום בש"ח', "סכום בשח",
+  ],
+  credit: ["credit", "זכות", "הכנסה"],
+  debit: ["debit", "חובה", "הוצאה"],
+};
+
+/**
+ * Look up a value in a row using fuzzy matching (line breaks, spaces, case insensitive).
+ * Falls back to known Hebrew/English aliases if direct match fails.
+ */
+function getCol(row: Record<string, unknown>, key: string, aliasGroup?: keyof typeof HEADER_ALIASES): unknown {
   if (key in row) return row[key];
   const trimmed = key.trim();
   if (trimmed in row) return row[trimmed];
-  // Try matching trimmed row keys against trimmed mapping key
+
+  const normTarget = normalizeKey(key);
+  // Build a normalized lookup of row keys
   for (const k of Object.keys(row)) {
-    if (k.trim() === trimmed) return row[k];
+    if (normalizeKey(k) === normTarget) return row[k];
+  }
+  // Partial / contains match (e.g. "תאריך" matches "תאריך עסקה")
+  for (const k of Object.keys(row)) {
+    const nk = normalizeKey(k);
+    if (nk.includes(normTarget) || normTarget.includes(nk)) return row[k];
+  }
+  // Try aliases for the field
+  if (aliasGroup) {
+    const aliases = HEADER_ALIASES[aliasGroup] || [];
+    for (const alias of aliases) {
+      const na = normalizeKey(alias);
+      for (const k of Object.keys(row)) {
+        const nk = normalizeKey(k);
+        if (nk === na || nk.includes(na) || na.includes(nk)) return row[k];
+      }
+    }
   }
   return undefined;
 }
