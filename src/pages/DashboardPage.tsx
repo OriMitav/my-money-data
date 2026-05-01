@@ -711,8 +711,10 @@ export default function DashboardPage() {
                           <StripedPattern key={d.name} id={`stripe-${i}`} color={PIE_COLORS[i % PIE_COLORS.length]} />
                         ))}
                       </defs>
-                      <Pie data={savingsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={120}
-                        label={renderPieLabel} labelLine={false} fontSize={11}>
+                      <Pie data={savingsPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100}
+                        label={(props) => renderPieLabel({ ...props, alwaysShow: true })}
+                        labelLine={{ stroke: "hsl(0 0% 40%)", strokeWidth: 1 }}
+                        fontSize={11}>
                         {savingsPieData.map((d, i) => (
                           <Cell key={d.name}
                             fill={d.accessible ? PIE_COLORS[i % PIE_COLORS.length] : `url(#stripe-${i})`}
