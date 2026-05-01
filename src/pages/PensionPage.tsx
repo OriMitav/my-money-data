@@ -1158,7 +1158,8 @@ export default function PensionPage() {
   };
 
 
-  // Investment summary computation
+  // Investment summary computation - includes carry-forward for the current calendar month
+  // so any update (e.g. updating עו"ש on the 1st of a new month) immediately produces a new row
   const monthlyInvestmentSummary = useMemo(() => {
     const relFundIds = new Set(relevantFunds.map(f => f.id));
     const monthSet = new Set<string>();
@@ -1166,6 +1167,11 @@ export default function PensionPage() {
       if (!relFundIds.has(e.fund_id)) continue;
       monthSet.add(`${e.year}-${String(e.month).padStart(2, '0')}`);
     }
+    // Always ensure the current calendar month is present (auto snapshot when month rolls over)
+    const now = new Date();
+    const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    if (relevantFunds.length > 0) monthSet.add(currentKey);
+
     const sortedMonths = [...monthSet].sort();
     let prevTotalValue = 0;
     const result: { label: string; value: number; deposits: number; profit: number; yieldPct: number }[] = [];
@@ -1175,14 +1181,19 @@ export default function PensionPage() {
       for (const fund of relevantFunds) {
         const fe = getEntriesSorted(fund.id);
         const entry = fe.find(e => e.year === yr && e.month === mn);
-        if (!entry) continue;
-        const idx = fe.indexOf(entry);
-        const prevBal = idx > 0 ? Number(fe[idx - 1].closing_balance) : 0;
-        const dep = Number(entry.employee_contribution) + Number(entry.employer_contribution) + Number(entry.compensation);
-        const fees = Number(entry.management_fees);
-        totalValue += Number(entry.closing_balance);
-        totalDeposits += dep;
-        totalProfit += (Number(entry.closing_balance) - prevBal - dep + fees);
+        if (entry) {
+          const idx = fe.indexOf(entry);
+          const prevBal = idx > 0 ? Number(fe[idx - 1].closing_balance) : 0;
+          const dep = Number(entry.employee_contribution) + Number(entry.employer_contribution) + Number(entry.compensation);
+          const fees = Number(entry.management_fees);
+          totalValue += Number(entry.closing_balance);
+          totalDeposits += dep;
+          totalProfit += (Number(entry.closing_balance) - prevBal - dep + fees);
+        } else {
+          // No entry for this month — carry forward the latest known balance up to this month
+          const prior = [...fe].reverse().find(e => e.year < yr || (e.year === yr && e.month < mn));
+          if (prior) totalValue += Number(prior.closing_balance);
+        }
       }
       const yieldPct = prevTotalValue > 0 ? totalProfit / prevTotalValue : 0;
       result.push({ label: `${MONTHS[mn - 1]} ${yr}`, value: totalValue, deposits: totalDeposits, profit: totalProfit, yieldPct });
