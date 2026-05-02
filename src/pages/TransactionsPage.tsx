@@ -62,14 +62,15 @@ export default function TransactionsPage() {
     newCategoryId: string | null;
   } | null>(null);
 
-  // Filters - default to current month
+  // Filters - default to current month, with "to" defaulting to today
   const now = new Date();
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   const [dateFrom, setDateFrom] = useState<Date | undefined>(firstOfMonth);
-  const [dateTo, setDateTo] = useState<Date | undefined>();
+  const [dateTo, setDateTo] = useState<Date | undefined>(now);
   const [entityFilter, setEntityFilter] = useState<string>("all");
   const [incomeFilter, setIncomeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [classifying, setClassifying] = useState(false);
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ["transactions", user?.id],
