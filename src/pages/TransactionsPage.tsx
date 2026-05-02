@@ -309,9 +309,10 @@ export default function TransactionsPage() {
           if (!cat || cat.parent_id !== categoryFilter) return false;
         }
       }
+      if (uploadFilter !== "all" && t.upload_id !== uploadFilter) return false;
       return true;
     });
-  }, [transactions, dateFrom, dateTo, entityFilter, incomeFilter, categoryFilter, categoryById]);
+  }, [transactions, dateFrom, dateTo, entityFilter, incomeFilter, categoryFilter, uploadFilter, categoryById]);
 
   // Summary computation based on filtered set
   const summary = useMemo(() => {
