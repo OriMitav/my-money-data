@@ -107,7 +107,20 @@ export default function TransactionsPage() {
     enabled: !!user,
   });
 
-  const { data: recipientMappings = [] } = useQuery({
+  const { data: uploads = [] } = useQuery({
+    queryKey: ["uploads", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("uploads")
+        .select("id, file_name, month, year, entity_id, financial_entities(name)")
+        .eq("user_id", user!.id)
+        .order("year", { ascending: false })
+        .order("month", { ascending: false });
+      if (error) throw error;
+      return data as unknown as { id: string; file_name: string; month: number; year: number; entity_id: string; financial_entities: { name: string } | null }[];
+    },
+    enabled: !!user,
+  });
     queryKey: ["recipient_mappings", user?.id],
     queryFn: async () => {
       const { data, error } = await supabase.from("recipient_mappings").select("*").eq("user_id", user!.id);
