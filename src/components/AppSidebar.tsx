@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { title: "לוח בקרה", url: "/dashboard", icon: LayoutDashboard },
   { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
-  { title: "העלאת דוחות", url: "/uploads", icon: Upload },
   { title: "הכנסות ומיסוי", url: "/income-tax", icon: Receipt },
   { title: "פנסיה וחסכונות", url: "/pension", icon: PiggyBank },
   { title: "נכסים", url: "/assets", icon: Building2 },
