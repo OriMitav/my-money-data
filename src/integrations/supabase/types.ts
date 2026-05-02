@@ -567,6 +567,33 @@ export type Database = {
           },
         ]
       }
+      recipient_categories: {
+        Row: {
+          category_id: string | null
+          created_at: string
+          id: string
+          recipient_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          recipient_name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          category_id?: string | null
+          created_at?: string
+          id?: string
+          recipient_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       recipient_mappings: {
         Row: {
           created_at: string
@@ -593,6 +620,7 @@ export type Database = {
       }
       transactions: {
         Row: {
+          category_id: string | null
           created_at: string
           date: string
           entity_id: string
@@ -606,6 +634,7 @@ export type Database = {
           value: number
         }
         Insert: {
+          category_id?: string | null
           created_at?: string
           date: string
           entity_id: string
@@ -619,6 +648,7 @@ export type Database = {
           value: number
         }
         Update: {
+          category_id?: string | null
           created_at?: string
           date?: string
           entity_id?: string
