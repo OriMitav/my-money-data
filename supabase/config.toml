@@ -1,1 +1,4 @@
 project_id = "wgxtwpasbcbgfnnfvpee"
+
+[functions.categorize-recipients]
+verify_jwt = false
