@@ -88,7 +88,7 @@ export function UploadReportDialog({ trigger }: UploadReportDialogProps) {
       const rows = isCSV ? await parseCSV(file) : await parseXLSX(file);
       if (rows.length === 0) throw new Error("הקובץ ריק");
 
-      const parsed = applyMapping(rows, mapping);
+      const parsed = applyMapping(rows, mapping, { uploadMonth: parseInt(month), uploadYear: parseInt(year) });
       if (parsed.length === 0) throw new Error("לא נמצאו שורות תקינות אחרי עיבוד הקובץ");
 
       // Dedupe within file
