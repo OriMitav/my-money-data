@@ -78,6 +78,7 @@ export default function TransactionsPage() {
   const [entityFilter, setEntityFilter] = useState<string>("all");
   const [incomeFilter, setIncomeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [uploadFilter, setUploadFilter] = useState<string>("all");
   const [classifying, setClassifying] = useState(false);
 
   const { data: transactions = [], isLoading } = useQuery({
