@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { UploadReportDialog } from "@/components/UploadReportDialog";
 
-// RTL nav: left arrow advances to next month, right arrow goes back
+// RTL nav: visually left arrow advances forward (next month), right arrow goes back
 const RTL_CALENDAR_CLASSNAMES = {
   nav_button_previous: "absolute right-1",
   nav_button_next: "absolute left-1",
