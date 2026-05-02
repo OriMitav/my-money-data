@@ -409,7 +409,10 @@ export default function TransactionsPage() {
             {filtered.length} תנועות{filtered.length !== transactions.length ? ` (מתוך ${transactions.length})` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" onClick={handleClassifyAll} disabled={classifying}>
+            {classifying ? "מסווג..." : "סווג את כל התנועות"}
+          </Button>
           <Button variant="outline" onClick={openRecipientDialog}>
             <Pencil className="ml-2 h-4 w-4" />
             עריכת נמענים
