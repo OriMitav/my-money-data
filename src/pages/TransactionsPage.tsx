@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -16,9 +16,9 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { fetchAllPages } from "@/lib/fetchAllPages";
 import { format } from "date-fns";
-import { he } from "date-fns/locale";
-import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X } from "lucide-react";
+import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { UploadReportDialog } from "@/components/UploadReportDialog";
 
 interface TransactionRow {
   id: string;
@@ -28,6 +28,7 @@ interface TransactionRow {
   relevant_transaction: boolean;
   subscription: boolean;
   entity_id: string;
+  category_id: string | null;
   financial_entities: { name: string; type: string } | null;
 }
 
@@ -37,6 +38,16 @@ interface RecipientMapping {
   custom_name: string;
 }
 
+interface Category {
+  id: string;
+  name: string;
+  type: string;
+  parent_id: string | null;
+}
+
+const formatILS = (n: number) =>
+  n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
+
 export default function TransactionsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -44,11 +55,21 @@ export default function TransactionsPage() {
   const [editedMappings, setEditedMappings] = useState<Record<string, string>>({});
   const [irrelevantRecipients, setIrrelevantRecipients] = useState<Set<string>>(new Set());
 
-  // Filters
-  const [dateFrom, setDateFrom] = useState<Date | undefined>();
+  // Category change confirmation dialog
+  const [pendingCategoryChange, setPendingCategoryChange] = useState<{
+    transactionId: string;
+    recipient: string;
+    newCategoryId: string | null;
+  } | null>(null);
+
+  // Filters - default to current month
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [dateFrom, setDateFrom] = useState<Date | undefined>(firstOfMonth);
   const [dateTo, setDateTo] = useState<Date | undefined>();
   const [entityFilter, setEntityFilter] = useState<string>("all");
   const [incomeFilter, setIncomeFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ["transactions", user?.id],
@@ -56,15 +77,11 @@ export default function TransactionsPage() {
       return fetchAllPages<TransactionRow>(async (from, to) => {
         const { data, error } = await supabase
           .from("transactions")
-          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, financial_entities(name, type)")
+          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, category_id, financial_entities(name, type)")
           .eq("user_id", user!.id)
           .order("date", { ascending: false })
           .range(from, to);
-
-        return {
-          data: data as unknown as TransactionRow[] | null,
-          error,
-        };
+        return { data: data as unknown as TransactionRow[] | null, error };
       });
     },
     enabled: !!user,
@@ -90,6 +107,33 @@ export default function TransactionsPage() {
     enabled: !!user,
   });
 
+  const { data: categories = [] } = useQuery({
+    queryKey: ["categories", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("categories").select("*").eq("user_id", user!.id).order("name");
+      if (error) throw error;
+      return data as Category[];
+    },
+    enabled: !!user,
+  });
+
+  const categoryById = useMemo(() => {
+    const m = new Map<string, Category>();
+    categories.forEach((c) => m.set(c.id, c));
+    return m;
+  }, [categories]);
+
+  const formatCategory = (id: string | null): string => {
+    if (!id) return "—";
+    const c = categoryById.get(id);
+    if (!c) return "—";
+    if (c.parent_id) {
+      const p = categoryById.get(c.parent_id);
+      return p ? `${p.name} > ${c.name}` : c.name;
+    }
+    return c.name;
+  };
+
   const mappingsMap = useMemo(() => {
     const map: Record<string, string> = {};
     recipientMappings.forEach((m) => { map[m.original_name] = m.custom_name; });
@@ -102,12 +146,9 @@ export default function TransactionsPage() {
     return Array.from(set).sort();
   }, [transactions]);
 
-  // Toggle mutations
   const toggleMutation = useMutation({
     mutationFn: async ({ id, field, value }: { id: string; field: "relevant_transaction" | "subscription"; value: boolean }) => {
-      const updatePayload = field === "relevant_transaction"
-        ? { relevant_transaction: value }
-        : { subscription: value };
+      const updatePayload = field === "relevant_transaction" ? { relevant_transaction: value } : { subscription: value };
       const { error } = await supabase.from("transactions").update(updatePayload).eq("id", id);
       if (error) throw error;
     },
@@ -134,7 +175,6 @@ export default function TransactionsPage() {
           if (error) throw error;
         }
       }
-      // Delete removed mappings
       for (const m of recipientMappings) {
         if (!mappings[m.original_name] || !mappings[m.original_name].trim()) {
           await supabase.from("recipient_mappings").delete().eq("id", m.id);
@@ -153,7 +193,6 @@ export default function TransactionsPage() {
     const initial: Record<string, string> = {};
     uniqueRecipients.forEach((r) => { initial[r] = mappingsMap[r] || ""; });
     setEditedMappings(initial);
-    // Find currently irrelevant recipients (those whose all transactions are irrelevant)
     const irr = new Set<string>();
     const recipientRelevance = new Map<string, boolean>();
     transactions.forEach((t) => {
@@ -165,30 +204,67 @@ export default function TransactionsPage() {
         }
       }
     });
-    recipientRelevance.forEach((allIrrelevant, name) => {
-      if (allIrrelevant) irr.add(name);
-    });
+    recipientRelevance.forEach((allIrrelevant, name) => { if (allIrrelevant) irr.add(name); });
     setIrrelevantRecipients(irr);
     setRecipientDialogOpen(true);
   };
 
   const handleSaveRecipients = async () => {
-    // First save mappings
     await saveMappingsMutation.mutateAsync(editedMappings);
-    // Then update relevance for toggled recipients
     for (const name of irrelevantRecipients) {
-      await supabase
-        .from("transactions")
-        .update({ relevant_transaction: false })
-        .eq("source_recipient", name);
-    }
-    // Set back to relevant for recipients not in the set
-    for (const name of uniqueRecipients) {
-      if (!irrelevantRecipients.has(name)) {
-        // Only update if there were previously irrelevant ones
-      }
+      await supabase.from("transactions").update({ relevant_transaction: false }).eq("source_recipient", name);
     }
     queryClient.invalidateQueries({ queryKey: ["transactions"] });
+  };
+
+  // Category change handler
+  const handleCategoryChange = (transaction: TransactionRow, newCategoryId: string) => {
+    const value = newCategoryId === "none" ? null : newCategoryId;
+    if (transaction.category_id === value) return;
+    setPendingCategoryChange({
+      transactionId: transaction.id,
+      recipient: transaction.source_recipient || "",
+      newCategoryId: value,
+    });
+  };
+
+  const applyCategoryChange = async (scope: "all" | "forward") => {
+    if (!pendingCategoryChange) return;
+    const { transactionId, recipient, newCategoryId } = pendingCategoryChange;
+    try {
+      if (scope === "all" && recipient) {
+        // Update all transactions of this recipient + persist mapping
+        await supabase
+          .from("transactions")
+          .update({ category_id: newCategoryId })
+          .eq("user_id", user!.id)
+          .eq("source_recipient", recipient);
+        await supabase
+          .from("recipient_categories")
+          .upsert(
+            { user_id: user!.id, recipient_name: recipient, category_id: newCategoryId },
+            { onConflict: "user_id,recipient_name" }
+          );
+        toast.success("הקטגוריה עודכנה עבור כל הנמענים");
+      } else {
+        // forward: only this transaction + persist mapping for future uploads
+        await supabase.from("transactions").update({ category_id: newCategoryId }).eq("id", transactionId);
+        if (recipient) {
+          await supabase
+            .from("recipient_categories")
+            .upsert(
+              { user_id: user!.id, recipient_name: recipient, category_id: newCategoryId },
+              { onConflict: "user_id,recipient_name" }
+            );
+        }
+        toast.success("הקטגוריה עודכנה לתנועה זו ולעתיד");
+      }
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "שגיאה בעדכון");
+    } finally {
+      setPendingCategoryChange(null);
+    }
   };
 
   // Filtered transactions
@@ -199,18 +275,49 @@ export default function TransactionsPage() {
       if (entityFilter !== "all" && t.entity_id !== entityFilter) return false;
       if (incomeFilter === "income" && t.value <= 0) return false;
       if (incomeFilter === "expense" && t.value >= 0) return false;
+      if (categoryFilter !== "all") {
+        if (categoryFilter === "none") {
+          if (t.category_id) return false;
+        } else if (t.category_id !== categoryFilter) {
+          // also allow matching parent (any child of this parent)
+          const cat = t.category_id ? categoryById.get(t.category_id) : null;
+          if (!cat || cat.parent_id !== categoryFilter) return false;
+        }
+      }
       return true;
     });
-  }, [transactions, dateFrom, dateTo, entityFilter, incomeFilter]);
+  }, [transactions, dateFrom, dateTo, entityFilter, incomeFilter, categoryFilter, categoryById]);
 
-  const hasFilters = dateFrom || dateTo || entityFilter !== "all" || incomeFilter !== "all";
+  // Summary computation based on filtered set
+  const summary = useMemo(() => {
+    let relIncome = 0, relExpense = 0;
+    let allIncome = 0, allExpense = 0;
+    let subscriptions = 0;
+    for (const t of filtered) {
+      if (t.value > 0) allIncome += t.value;
+      else allExpense += -t.value;
+      if (t.relevant_transaction) {
+        if (t.value > 0) relIncome += t.value;
+        else relExpense += -t.value;
+      }
+      if (t.subscription && t.value < 0) subscriptions += -t.value;
+    }
+    return { relIncome, relExpense, allIncome, allExpense, subscriptions };
+  }, [filtered]);
+
+  const hasFilters = !!dateFrom || !!dateTo || entityFilter !== "all" || incomeFilter !== "all" || categoryFilter !== "all";
 
   const clearFilters = () => {
     setDateFrom(undefined);
     setDateTo(undefined);
     setEntityFilter("all");
     setIncomeFilter("all");
+    setCategoryFilter("all");
   };
+
+  // Categories grouped (parents + their children) for select
+  const parentCategories = useMemo(() => categories.filter((c) => !c.parent_id), [categories]);
+  const childrenOf = (pid: string) => categories.filter((c) => c.parent_id === pid);
 
   return (
     <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
@@ -221,10 +328,20 @@ export default function TransactionsPage() {
             {filtered.length} תנועות{filtered.length !== transactions.length ? ` (מתוך ${transactions.length})` : ""}
           </p>
         </div>
-        <Button variant="outline" onClick={openRecipientDialog}>
-          <Pencil className="ml-2 h-4 w-4" />
-          עריכת נמענים
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={openRecipientDialog}>
+            <Pencil className="ml-2 h-4 w-4" />
+            עריכת נמענים
+          </Button>
+          <UploadReportDialog
+            trigger={
+              <Button>
+                <Upload className="ml-2 h-4 w-4" />
+                העלאת דוח
+              </Button>
+            }
+          />
+        </div>
       </div>
 
       {/* Filters */}
@@ -266,9 +383,7 @@ export default function TransactionsPage() {
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">מסגרת תשלום</Label>
               <Select value={entityFilter} onValueChange={setEntityFilter}>
-                <SelectTrigger className="w-[160px] h-9">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="w-[160px] h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">הכל</SelectItem>
                   {entities.map((e) => (
@@ -280,13 +395,29 @@ export default function TransactionsPage() {
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">סוג</Label>
               <Select value={incomeFilter} onValueChange={setIncomeFilter}>
-                <SelectTrigger className="w-[130px] h-9">
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger className="w-[130px] h-9"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">הכל</SelectItem>
                   <SelectItem value="income">הכנסה</SelectItem>
                   <SelectItem value="expense">הוצאה</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">קטגוריה</Label>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-[200px] h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">הכל</SelectItem>
+                  <SelectItem value="none">ללא קטגוריה</SelectItem>
+                  {parentCategories.map((p) => (
+                    <div key={p.id}>
+                      <SelectItem value={p.id}>{p.name} (כולל תתי)</SelectItem>
+                      {childrenOf(p.id).map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{`  ${p.name} > ${c.name}`}</SelectItem>
+                      ))}
+                    </div>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -296,6 +427,51 @@ export default function TransactionsPage() {
                 נקה
               </Button>
             )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Summary */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">סיכום (לפי הסינון)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="text-center">קבוצה</TableHead>
+                  <TableHead className="text-center">הכנסות</TableHead>
+                  <TableHead className="text-center">הוצאות</TableHead>
+                  <TableHead className="text-center">נטו</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow>
+                  <TableCell className="text-center font-medium">רלוונטי בלבד</TableCell>
+                  <TableCell className="text-center text-green-600">{formatILS(summary.relIncome)}</TableCell>
+                  <TableCell className="text-center text-red-500">{formatILS(summary.relExpense)}</TableCell>
+                  <TableCell className={cn("text-center font-semibold", summary.relIncome - summary.relExpense >= 0 ? "text-green-600" : "text-red-500")}>
+                    {formatILS(summary.relIncome - summary.relExpense)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-center font-medium">סה"כ (כולל לא רלוונטי)</TableCell>
+                  <TableCell className="text-center text-green-600">{formatILS(summary.allIncome)}</TableCell>
+                  <TableCell className="text-center text-red-500">{formatILS(summary.allExpense)}</TableCell>
+                  <TableCell className={cn("text-center font-semibold", summary.allIncome - summary.allExpense >= 0 ? "text-green-600" : "text-red-500")}>
+                    {formatILS(summary.allIncome - summary.allExpense)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="text-center font-medium">מנויים</TableCell>
+                  <TableCell className="text-center text-muted-foreground">—</TableCell>
+                  <TableCell className="text-center text-red-500">{formatILS(summary.subscriptions)}</TableCell>
+                  <TableCell className="text-center text-muted-foreground">—</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           </div>
         </CardContent>
       </Card>
@@ -320,12 +496,13 @@ export default function TransactionsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="whitespace-nowrap">תאריך</TableHead>
-                    <TableHead>נמען</TableHead>
-                    <TableHead className="whitespace-nowrap">סכום</TableHead>
-                    <TableHead className="hidden md:table-cell whitespace-nowrap">שולם באמצעות</TableHead>
-                    <TableHead className="hidden lg:table-cell whitespace-nowrap">מסגרת תשלום</TableHead>
-                    <TableHead className="hidden sm:table-cell whitespace-nowrap">הכנסה/הוצאה</TableHead>
+                    <TableHead className="text-center whitespace-nowrap">תאריך</TableHead>
+                    <TableHead className="text-center">נמען</TableHead>
+                    <TableHead className="text-center">קטגוריה</TableHead>
+                    <TableHead className="text-center whitespace-nowrap">סכום</TableHead>
+                    <TableHead className="text-center hidden md:table-cell whitespace-nowrap">שולם באמצעות</TableHead>
+                    <TableHead className="text-center hidden lg:table-cell whitespace-nowrap">מסגרת תשלום</TableHead>
+                    <TableHead className="text-center hidden sm:table-cell whitespace-nowrap">הכנסה/הוצאה</TableHead>
                     <TableHead className="text-center whitespace-nowrap">רלוונטי</TableHead>
                     <TableHead className="text-center whitespace-nowrap">מנוי</TableHead>
                   </TableRow>
@@ -339,18 +516,39 @@ export default function TransactionsPage() {
 
                     return (
                       <TableRow key={t.id}>
-                        <TableCell className="whitespace-nowrap">{t.date}</TableCell>
-                        <TableCell className="max-w-[200px] truncate">{displayRecipient}</TableCell>
-                        <TableCell className={cn("font-medium whitespace-nowrap", isIncome ? "text-green-600" : "text-red-500")}>
+                        <TableCell className="text-center whitespace-nowrap">{t.date}</TableCell>
+                        <TableCell className="text-center max-w-[200px] truncate">{displayRecipient}</TableCell>
+                        <TableCell className="text-center">
+                          <Select
+                            value={t.category_id ?? "none"}
+                            onValueChange={(v) => handleCategoryChange(t, v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs w-[170px] mx-auto">
+                              <SelectValue>{formatCategory(t.category_id)}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">ללא</SelectItem>
+                              {parentCategories.map((p) => (
+                                <div key={p.id}>
+                                  <SelectItem value={p.id}>{p.name}</SelectItem>
+                                  {childrenOf(p.id).map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>{`  ${p.name} > ${c.name}`}</SelectItem>
+                                  ))}
+                                </div>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className={cn("text-center font-medium whitespace-nowrap", isIncome ? "text-green-600" : "text-red-500")}>
                           {t.value > 0 ? "+" : ""}{t.value.toLocaleString("he-IL", { style: "currency", currency: "ILS" })}
                         </TableCell>
-                        <TableCell className="hidden md:table-cell">
+                        <TableCell className="text-center hidden md:table-cell">
                           <Badge variant="outline" className="text-xs">{paidVia}</Badge>
                         </TableCell>
-                        <TableCell className="hidden lg:table-cell">
+                        <TableCell className="text-center hidden lg:table-cell">
                           <Badge variant="secondary" className="text-xs">{entity?.name || "—"}</Badge>
                         </TableCell>
-                        <TableCell className="hidden sm:table-cell">
+                        <TableCell className="text-center hidden sm:table-cell">
                           <Badge className={cn("text-xs", isIncome ? "bg-green-100 text-green-800 hover:bg-green-100" : "bg-red-100 text-red-800 hover:bg-red-100")}>
                             {isIncome ? "הכנסה" : "הוצאה"}
                           </Badge>
@@ -418,6 +616,23 @@ export default function TransactionsPage() {
             <Button onClick={handleSaveRecipients} disabled={saveMappingsMutation.isPending}>
               {saveMappingsMutation.isPending ? "שומר..." : "שמור"}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Category change scope dialog */}
+      <Dialog open={!!pendingCategoryChange} onOpenChange={(v) => !v && setPendingCategoryChange(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>החל את שינוי הקטגוריה</DialogTitle>
+            <DialogDescription>
+              לעדכן את הקטגוריה עבור כל הנמענים בשם "{pendingCategoryChange?.recipient}", או רק לתנועה זו ולעתיד?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setPendingCategoryChange(null)}>ביטול</Button>
+            <Button variant="secondary" onClick={() => applyCategoryChange("forward")}>מכאן ולהבא</Button>
+            <Button onClick={() => applyCategoryChange("all")}>עבור כל הנמענים</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
