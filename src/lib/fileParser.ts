@@ -212,7 +212,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
     "שם בית עסק", "תיאור", "פרטים", "מוטב", "שם המוטב", "שם בית העסק", "שם בית-עסק",
   ],
   value: [
-    "value", "amount", "charge", "charging value", "סכום", "סכום חיוב", "סכום עסקה", "סכום בש״ח", 'סכום בש"ח', "סכום בשח",
+    "value", "amount", "charge", "charging value", "charged value", "סכום", "סכום חיוב", "סכום לחיוב", "סכום עסקה", "סכום בש״ח", 'סכום בש"ח', "סכום בשח",
   ],
   credit: ["credit", "זכות", "הכנסה"],
   debit: ["debit", "חובה", "הוצאה"],
