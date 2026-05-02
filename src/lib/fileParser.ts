@@ -251,6 +251,40 @@ function getCol(row: Record<string, unknown>, key: string, aliasGroup?: keyof ty
   return undefined;
 }
 
+// Detect "installment X of Y" in any cell of a row (generic, language-agnostic for Hebrew patterns)
+const INSTALLMENT_PATTERNS = [
+  /תשלום\s*\d+\s*מתוך\s*\d+/i,
+  /תשלום\s*\d+\s*\/\s*\d+/i,
+  /payment\s*\d+\s*of\s*\d+/i,
+  /\b\d+\s*\/\s*\d+\s*תשלומים?/i,
+];
+
+function isInstallmentRow(row: Record<string, unknown>): boolean {
+  for (const v of Object.values(row)) {
+    if (v == null) continue;
+    const s = String(v);
+    if (!s) continue;
+    for (const re of INSTALLMENT_PATTERNS) {
+      if (re.test(s)) return true;
+    }
+  }
+  return false;
+}
+
+function shiftDateToCurrentMonth(dateISO: string): string {
+  if (!dateISO) return dateISO;
+  const m = dateISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dateISO;
+  const day = parseInt(m[3], 10);
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = now.getMonth(); // 0-indexed
+  // clamp day to last day of current month
+  const lastDay = new Date(y, mo + 1, 0).getDate();
+  const safeDay = Math.min(day, lastDay);
+  return `${y}-${String(mo + 1).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+}
+
 export function applyMapping(
   rows: Record<string, unknown>[],
   mapping: ColumnMapping
@@ -268,8 +302,13 @@ export function applyMapping(
         value = 0;
       }
 
+      let date = parseDate(getCol(row, mapping.date, "date"), mapping.dateFormat);
+      if (isInstallmentRow(row)) {
+        date = shiftDateToCurrentMonth(date);
+      }
+
       return {
-        date: parseDate(getCol(row, mapping.date, "date"), mapping.dateFormat),
+        date,
         sourceRecipient: String(getCol(row, mapping.sourceRecipient, "sourceRecipient") ?? ""),
         value,
         rawData: row,
