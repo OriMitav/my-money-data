@@ -377,7 +377,7 @@ export default function TransactionsPage() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} className="p-3 pointer-events-auto" />
+                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} dir="rtl" className="p-3 pointer-events-auto" />
                 </PopoverContent>
               </Popover>
             </div>
