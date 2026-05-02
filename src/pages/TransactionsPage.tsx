@@ -443,6 +443,12 @@ export default function TransactionsPage() {
             <Pencil className="ml-2 h-4 w-4" />
             עריכת נמענים
           </Button>
+          <Button variant="outline" asChild>
+            <Link to="/uploads">
+              <FileText className="ml-2 h-4 w-4" />
+              ניהול דוחות
+            </Link>
+          </Button>
           <UploadReportDialog
             trigger={
               <Button>
