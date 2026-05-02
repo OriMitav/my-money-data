@@ -87,7 +87,7 @@ export default function TransactionsPage() {
       return fetchAllPages<TransactionRow>(async (from, to) => {
         const { data, error } = await supabase
           .from("transactions")
-          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, category_id, financial_entities(name, type)")
+          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, category_id, upload_id, financial_entities(name, type)")
           .eq("user_id", user!.id)
           .order("date", { ascending: false })
           .range(from, to);
