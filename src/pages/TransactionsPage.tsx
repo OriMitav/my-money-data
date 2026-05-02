@@ -16,9 +16,16 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { fetchAllPages } from "@/lib/fetchAllPages";
 import { format } from "date-fns";
-import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X, Upload } from "lucide-react";
+import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 import { UploadReportDialog } from "@/components/UploadReportDialog";
+
+// RTL nav: left arrow advances to next month, right arrow goes back
+const RTL_CALENDAR_CLASSNAMES = {
+  nav_button_previous: "absolute right-1",
+  nav_button_next: "absolute left-1",
+};
 
 interface TransactionRow {
   id: string;
