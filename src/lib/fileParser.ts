@@ -271,23 +271,14 @@ function isInstallmentRow(row: Record<string, unknown>): boolean {
   return false;
 }
 
-function shiftDateToCurrentMonth(dateISO: string): string {
-  if (!dateISO) return dateISO;
-  const m = dateISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return dateISO;
-  const day = parseInt(m[3], 10);
-  const now = new Date();
-  const y = now.getFullYear();
-  const mo = now.getMonth(); // 0-indexed
-  // clamp day to last day of current month
-  const lastDay = new Date(y, mo + 1, 0).getDate();
-  const safeDay = Math.min(day, lastDay);
-  return `${y}-${String(mo + 1).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+function firstOfMonth(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-01`;
 }
 
 export function applyMapping(
   rows: Record<string, unknown>[],
-  mapping: ColumnMapping
+  mapping: ColumnMapping,
+  context?: { uploadMonth?: number; uploadYear?: number }
 ): ParsedRow[] {
   return rows
     .map((row) => {
@@ -303,8 +294,8 @@ export function applyMapping(
       }
 
       let date = parseDate(getCol(row, mapping.date, "date"), mapping.dateFormat);
-      if (isInstallmentRow(row)) {
-        date = shiftDateToCurrentMonth(date);
+      if (isInstallmentRow(row) && context?.uploadMonth && context?.uploadYear) {
+        date = firstOfMonth(context.uploadYear, context.uploadMonth);
       }
 
       return {
