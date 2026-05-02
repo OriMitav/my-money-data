@@ -121,6 +121,8 @@ export default function TransactionsPage() {
     },
     enabled: !!user,
   });
+
+  const { data: recipientMappings = [] } = useQuery({
     queryKey: ["recipient_mappings", user?.id],
     queryFn: async () => {
       const { data, error } = await supabase.from("recipient_mappings").select("*").eq("user_id", user!.id);
