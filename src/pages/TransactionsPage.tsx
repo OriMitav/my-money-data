@@ -316,6 +316,86 @@ export default function TransactionsPage() {
     setCategoryFilter("all");
   };
 
+  // Bulk-classify all uncategorized transactions
+  const handleClassifyAll = async () => {
+    if (!user) return;
+    setClassifying(true);
+    try {
+      // Distinct uncategorized recipients (across all transactions)
+      const uncatRecipients = new Map<string, boolean>();
+      for (const t of transactions) {
+        if (!t.category_id && t.source_recipient) {
+          const name = t.source_recipient.trim();
+          if (!name) continue;
+          if (!uncatRecipients.has(name)) uncatRecipients.set(name, t.value > 0);
+        }
+      }
+      // Apply existing recipient_categories first
+      const { data: existing } = await supabase
+        .from("recipient_categories")
+        .select("recipient_name, category_id")
+        .eq("user_id", user.id);
+      const known = new Map<string, string | null>();
+      (existing || []).forEach((m) => known.set(m.recipient_name.trim(), m.category_id));
+
+      const toAI: { name: string; isIncome: boolean }[] = [];
+      uncatRecipients.forEach((isIncome, name) => {
+        if (!known.has(name)) toAI.push({ name, isIncome });
+      });
+
+      const validIds = new Set(categories.map((c) => c.id));
+
+      if (toAI.length > 0) {
+        const catList = categories.map((c) => {
+          const parent = c.parent_id ? categories.find((p) => p.id === c.parent_id) : null;
+          return { id: c.id, name: c.name, parent_name: parent?.name || null, type: c.type as "income" | "expense" };
+        });
+        // batch in chunks of 80 to avoid prompt limits
+        for (let i = 0; i < toAI.length; i += 80) {
+          const batch = toAI.slice(i, i + 80);
+          const { data: aiRes } = await supabase.functions.invoke("categorize-recipients", {
+            body: { recipients: batch, categories: catList },
+          });
+          const results = (aiRes?.results || []) as { recipient: string; category_id: string | null }[];
+          for (const r of results) {
+            if (r.category_id === null || validIds.has(r.category_id)) {
+              known.set(r.recipient.trim(), r.category_id);
+            }
+          }
+        }
+        // Persist new mappings
+        const inserts = Array.from(known.entries())
+          .filter(([name]) => toAI.some((r) => r.name === name))
+          .map(([name, category_id]) => ({ user_id: user.id, recipient_name: name, category_id }));
+        if (inserts.length > 0) {
+          await supabase
+            .from("recipient_categories")
+            .upsert(inserts, { onConflict: "user_id,recipient_name" });
+        }
+      }
+
+      // Now update all uncategorized transactions per recipient
+      let updated = 0;
+      for (const [name, category_id] of known.entries()) {
+        if (!category_id) continue;
+        const { error, count } = await supabase
+          .from("transactions")
+          .update({ category_id }, { count: "exact" })
+          .eq("user_id", user.id)
+          .is("category_id", null)
+          .eq("source_recipient", name);
+        if (!error && count) updated += count;
+      }
+      toast.success(`סווגו ${updated} תנועות`);
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["recipient_categories"] });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "שגיאה בסיווג");
+    } finally {
+      setClassifying(false);
+    }
+  };
+
   // Categories grouped (parents + their children) for select
   const parentCategories = useMemo(() => categories.filter((c) => !c.parent_id), [categories]);
   const childrenOf = (pid: string) => categories.filter((c) => c.parent_id === pid);
