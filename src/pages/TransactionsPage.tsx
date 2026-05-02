@@ -537,6 +537,20 @@ export default function TransactionsPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">דוח</Label>
+              <Select value={uploadFilter} onValueChange={setUploadFilter}>
+                <SelectTrigger className="w-[220px] h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">כל הדוחות</SelectItem>
+                  {uploads.map((u) => {
+                    const monthsHe = ["ינו","פבר","מרץ","אפר","מאי","יונ","יול","אוג","ספט","אוק","נוב","דצמ"];
+                    const label = `${u.financial_entities?.name || "—"} · ${monthsHe[u.month - 1]} ${u.year}`;
+                    return <SelectItem key={u.id} value={u.id}>{label}</SelectItem>;
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
             {hasFilters && (
               <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
                 <X className="ml-1 h-3.5 w-3.5" />
