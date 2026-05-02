@@ -331,7 +331,7 @@ export default function TransactionsPage() {
     return { relIncome, relExpense, allIncome, allExpense, subscriptions };
   }, [filtered]);
 
-  const hasFilters = !!dateFrom || !!dateTo || entityFilter !== "all" || incomeFilter !== "all" || categoryFilter !== "all";
+  const hasFilters = !!dateFrom || !!dateTo || entityFilter !== "all" || incomeFilter !== "all" || categoryFilter !== "all" || uploadFilter !== "all";
 
   const clearFilters = () => {
     setDateFrom(undefined);
@@ -339,6 +339,7 @@ export default function TransactionsPage() {
     setEntityFilter("all");
     setIncomeFilter("all");
     setCategoryFilter("all");
+    setUploadFilter("all");
   };
 
   // Bulk-classify all uncategorized transactions
