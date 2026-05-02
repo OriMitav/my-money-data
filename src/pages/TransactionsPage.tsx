@@ -16,9 +16,16 @@ import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { fetchAllPages } from "@/lib/fetchAllPages";
 import { format } from "date-fns";
-import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X, Upload } from "lucide-react";
+import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X, Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 import { UploadReportDialog } from "@/components/UploadReportDialog";
+
+// RTL nav: visually left arrow advances forward (next month), right arrow goes back
+const RTL_CALENDAR_CLASSNAMES = {
+  nav_button_previous: "absolute right-1",
+  nav_button_next: "absolute left-1",
+};
 
 interface TransactionRow {
   id: string;
@@ -29,6 +36,7 @@ interface TransactionRow {
   subscription: boolean;
   entity_id: string;
   category_id: string | null;
+  upload_id: string | null;
   financial_entities: { name: string; type: string } | null;
 }
 
@@ -70,6 +78,7 @@ export default function TransactionsPage() {
   const [entityFilter, setEntityFilter] = useState<string>("all");
   const [incomeFilter, setIncomeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [uploadFilter, setUploadFilter] = useState<string>("all");
   const [classifying, setClassifying] = useState(false);
 
   const { data: transactions = [], isLoading } = useQuery({
@@ -78,7 +87,7 @@ export default function TransactionsPage() {
       return fetchAllPages<TransactionRow>(async (from, to) => {
         const { data, error } = await supabase
           .from("transactions")
-          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, category_id, financial_entities(name, type)")
+          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, category_id, upload_id, financial_entities(name, type)")
           .eq("user_id", user!.id)
           .order("date", { ascending: false })
           .range(from, to);
@@ -94,6 +103,21 @@ export default function TransactionsPage() {
       const { data, error } = await supabase.from("financial_entities").select("id, name").eq("user_id", user!.id).order("name");
       if (error) throw error;
       return data;
+    },
+    enabled: !!user,
+  });
+
+  const { data: uploads = [] } = useQuery({
+    queryKey: ["uploads", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("uploads")
+        .select("id, file_name, month, year, entity_id, financial_entities(name)")
+        .eq("user_id", user!.id)
+        .order("year", { ascending: false })
+        .order("month", { ascending: false });
+      if (error) throw error;
+      return data as unknown as { id: string; file_name: string; month: number; year: number; entity_id: string; financial_entities: { name: string } | null }[];
     },
     enabled: !!user,
   });
@@ -285,9 +309,10 @@ export default function TransactionsPage() {
           if (!cat || cat.parent_id !== categoryFilter) return false;
         }
       }
+      if (uploadFilter !== "all" && t.upload_id !== uploadFilter) return false;
       return true;
     });
-  }, [transactions, dateFrom, dateTo, entityFilter, incomeFilter, categoryFilter, categoryById]);
+  }, [transactions, dateFrom, dateTo, entityFilter, incomeFilter, categoryFilter, uploadFilter, categoryById]);
 
   // Summary computation based on filtered set
   const summary = useMemo(() => {
@@ -306,7 +331,7 @@ export default function TransactionsPage() {
     return { relIncome, relExpense, allIncome, allExpense, subscriptions };
   }, [filtered]);
 
-  const hasFilters = !!dateFrom || !!dateTo || entityFilter !== "all" || incomeFilter !== "all" || categoryFilter !== "all";
+  const hasFilters = !!dateFrom || !!dateTo || entityFilter !== "all" || incomeFilter !== "all" || categoryFilter !== "all" || uploadFilter !== "all";
 
   const clearFilters = () => {
     setDateFrom(undefined);
@@ -314,6 +339,7 @@ export default function TransactionsPage() {
     setEntityFilter("all");
     setIncomeFilter("all");
     setCategoryFilter("all");
+    setUploadFilter("all");
   };
 
   // Bulk-classify all uncategorized transactions
@@ -417,6 +443,12 @@ export default function TransactionsPage() {
             <Pencil className="ml-2 h-4 w-4" />
             עריכת נמענים
           </Button>
+          <Button variant="outline" asChild>
+            <Link to="/uploads">
+              <FileText className="ml-2 h-4 w-4" />
+              ניהול דוחות
+            </Link>
+          </Button>
           <UploadReportDialog
             trigger={
               <Button>
@@ -446,7 +478,7 @@ export default function TransactionsPage() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} dir="rtl" className="p-3 pointer-events-auto" />
+                  <Calendar mode="single" selected={dateFrom} defaultMonth={dateFrom} onSelect={setDateFrom} dir="rtl" className="p-3 pointer-events-auto" />
                 </PopoverContent>
               </Popover>
             </div>
@@ -460,7 +492,7 @@ export default function TransactionsPage() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} dir="rtl" className="p-3 pointer-events-auto" />
+                  <Calendar mode="single" selected={dateTo} defaultMonth={dateTo} onSelect={setDateTo} dir="rtl" className="p-3 pointer-events-auto" />
                 </PopoverContent>
               </Popover>
             </div>
@@ -502,6 +534,20 @@ export default function TransactionsPage() {
                       ))}
                     </Fragment>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">דוח</Label>
+              <Select value={uploadFilter} onValueChange={setUploadFilter}>
+                <SelectTrigger className="w-[220px] h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">כל הדוחות</SelectItem>
+                  {uploads.map((u) => {
+                    const monthsHe = ["ינו","פבר","מרץ","אפר","מאי","יונ","יול","אוג","ספט","אוק","נוב","דצמ"];
+                    const label = `${u.financial_entities?.name || "—"} · ${monthsHe[u.month - 1]} ${u.year}`;
+                    return <SelectItem key={u.id} value={u.id}>{label}</SelectItem>;
+                  })}
                 </SelectContent>
               </Select>
             </div>
