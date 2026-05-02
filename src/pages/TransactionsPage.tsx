@@ -36,6 +36,7 @@ interface TransactionRow {
   subscription: boolean;
   entity_id: string;
   category_id: string | null;
+  upload_id: string | null;
   financial_entities: { name: string; type: string } | null;
 }
 
