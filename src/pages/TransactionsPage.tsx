@@ -411,12 +411,12 @@ export default function TransactionsPage() {
                   <SelectItem value="all">הכל</SelectItem>
                   <SelectItem value="none">ללא קטגוריה</SelectItem>
                   {parentCategories.map((p) => (
-                    <div key={p.id}>
+                    <Fragment key={p.id}>
                       <SelectItem value={p.id}>{p.name} (כולל תתי)</SelectItem>
                       {childrenOf(p.id).map((c) => (
                         <SelectItem key={c.id} value={c.id}>{`  ${p.name} > ${c.name}`}</SelectItem>
                       ))}
-                    </div>
+                    </Fragment>
                   ))}
                 </SelectContent>
               </Select>
@@ -529,12 +529,12 @@ export default function TransactionsPage() {
                             <SelectContent>
                               <SelectItem value="none">ללא</SelectItem>
                               {parentCategories.map((p) => (
-                                <div key={p.id}>
+                                <Fragment key={p.id}>
                                   <SelectItem value={p.id}>{p.name}</SelectItem>
                                   {childrenOf(p.id).map((c) => (
                                     <SelectItem key={c.id} value={c.id}>{`  ${p.name} > ${c.name}`}</SelectItem>
                                   ))}
-                                </div>
+                                </Fragment>
                               ))}
                             </SelectContent>
                           </Select>
