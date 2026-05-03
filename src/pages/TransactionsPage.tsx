@@ -301,7 +301,62 @@ export default function TransactionsPage() {
     }
   };
 
-  // Filtered transactions
+  // Flag change handler — intercepts toggle to ask scope
+  const handleFlagToggle = (t: TransactionRow, field: "relevant_transaction" | "subscription", value: boolean) => {
+    if (!t.source_recipient) {
+      // No recipient → just toggle this row
+      toggleMutation.mutate({ id: t.id, field, value });
+      return;
+    }
+    setPendingFlagChange({
+      transactionId: t.id,
+      recipient: t.source_recipient,
+      field,
+      value,
+      date: t.date,
+    });
+  };
+
+  const applyFlagChange = async (scope: "all" | "forward" | "single") => {
+    if (!pendingFlagChange) return;
+    const { transactionId, recipient, field, value, date } = pendingFlagChange;
+    const fieldKey = field === "relevant_transaction" ? "relevant" : "subscription";
+    const updatePayload = field === "relevant_transaction" ? { relevant_transaction: value } : { subscription: value };
+    try {
+      if (scope === "single") {
+        await supabase.from("transactions").update(updatePayload).eq("id", transactionId);
+      } else if (scope === "all") {
+        await supabase
+          .from("transactions")
+          .update(updatePayload)
+          .eq("user_id", user!.id)
+          .eq("source_recipient", recipient);
+        await supabase.from("recipient_preferences").upsert(
+          { user_id: user!.id, recipient_name: recipient, field: fieldKey, value, from_date: null },
+          { onConflict: "user_id,recipient_name,field" }
+        );
+        toast.success("עודכן עבור כל הנמענים");
+      } else {
+        // forward: this date and onward
+        await supabase
+          .from("transactions")
+          .update(updatePayload)
+          .eq("user_id", user!.id)
+          .eq("source_recipient", recipient)
+          .gte("date", date);
+        await supabase.from("recipient_preferences").upsert(
+          { user_id: user!.id, recipient_name: recipient, field: fieldKey, value, from_date: date },
+          { onConflict: "user_id,recipient_name,field" }
+        );
+        toast.success("עודכן מהתאריך הזה ולהבא");
+      }
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "שגיאה בעדכון");
+    } finally {
+      setPendingFlagChange(null);
+    }
+  };
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
       if (dateFrom && t.date < format(dateFrom, "yyyy-MM-dd")) return false;
