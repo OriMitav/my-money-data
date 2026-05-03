@@ -756,7 +756,7 @@ export default function TransactionsPage() {
                         <TableCell className="text-center">
                           <Switch
                             checked={t.subscription}
-                            onCheckedChange={(v) => toggleMutation.mutate({ id: t.id, field: "subscription", value: v })}
+                            onCheckedChange={(v) => handleFlagToggle(t, "subscription", v)}
                           />
                         </TableCell>
                       </TableRow>
