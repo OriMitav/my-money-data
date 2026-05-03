@@ -70,6 +70,15 @@ export default function TransactionsPage() {
     newCategoryId: string | null;
   } | null>(null);
 
+  // Flag (relevant/subscription) change confirmation dialog
+  const [pendingFlagChange, setPendingFlagChange] = useState<{
+    transactionId: string;
+    recipient: string;
+    field: "relevant_transaction" | "subscription";
+    value: boolean;
+    date: string;
+  } | null>(null);
+
   // Filters - default to current month, with "to" defaulting to today
   const now = new Date();
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -292,7 +301,62 @@ export default function TransactionsPage() {
     }
   };
 
-  // Filtered transactions
+  // Flag change handler — intercepts toggle to ask scope
+  const handleFlagToggle = (t: TransactionRow, field: "relevant_transaction" | "subscription", value: boolean) => {
+    if (!t.source_recipient) {
+      // No recipient → just toggle this row
+      toggleMutation.mutate({ id: t.id, field, value });
+      return;
+    }
+    setPendingFlagChange({
+      transactionId: t.id,
+      recipient: t.source_recipient,
+      field,
+      value,
+      date: t.date,
+    });
+  };
+
+  const applyFlagChange = async (scope: "all" | "forward" | "single") => {
+    if (!pendingFlagChange) return;
+    const { transactionId, recipient, field, value, date } = pendingFlagChange;
+    const fieldKey = field === "relevant_transaction" ? "relevant" : "subscription";
+    const updatePayload = field === "relevant_transaction" ? { relevant_transaction: value } : { subscription: value };
+    try {
+      if (scope === "single") {
+        await supabase.from("transactions").update(updatePayload).eq("id", transactionId);
+      } else if (scope === "all") {
+        await supabase
+          .from("transactions")
+          .update(updatePayload)
+          .eq("user_id", user!.id)
+          .eq("source_recipient", recipient);
+        await supabase.from("recipient_preferences").upsert(
+          { user_id: user!.id, recipient_name: recipient, field: fieldKey, value, from_date: null },
+          { onConflict: "user_id,recipient_name,field" }
+        );
+        toast.success("עודכן עבור כל הנמענים");
+      } else {
+        // forward: this date and onward
+        await supabase
+          .from("transactions")
+          .update(updatePayload)
+          .eq("user_id", user!.id)
+          .eq("source_recipient", recipient)
+          .gte("date", date);
+        await supabase.from("recipient_preferences").upsert(
+          { user_id: user!.id, recipient_name: recipient, field: fieldKey, value, from_date: date },
+          { onConflict: "user_id,recipient_name,field" }
+        );
+        toast.success("עודכן מהתאריך הזה ולהבא");
+      }
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "שגיאה בעדכון");
+    } finally {
+      setPendingFlagChange(null);
+    }
+  };
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
       if (dateFrom && t.date < format(dateFrom, "yyyy-MM-dd")) return false;
@@ -686,13 +750,13 @@ export default function TransactionsPage() {
                         <TableCell className="text-center">
                           <Switch
                             checked={t.relevant_transaction}
-                            onCheckedChange={(v) => toggleMutation.mutate({ id: t.id, field: "relevant_transaction", value: v })}
+                            onCheckedChange={(v) => handleFlagToggle(t, "relevant_transaction", v)}
                           />
                         </TableCell>
                         <TableCell className="text-center">
                           <Switch
                             checked={t.subscription}
-                            onCheckedChange={(v) => toggleMutation.mutate({ id: t.id, field: "subscription", value: v })}
+                            onCheckedChange={(v) => handleFlagToggle(t, "subscription", v)}
                           />
                         </TableCell>
                       </TableRow>
@@ -763,6 +827,28 @@ export default function TransactionsPage() {
             <Button variant="outline" onClick={() => setPendingCategoryChange(null)}>ביטול</Button>
             <Button variant="secondary" onClick={() => applyCategoryChange("forward")}>מכאן ולהבא</Button>
             <Button onClick={() => applyCategoryChange("all")}>עבור כל הנמענים</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Flag (relevant/subscription) change scope dialog */}
+      <Dialog open={!!pendingFlagChange} onOpenChange={(v) => !v && setPendingFlagChange(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {pendingFlagChange?.field === "relevant_transaction"
+                ? `הגדרת רלוונטיות (${pendingFlagChange?.value ? "רלוונטי" : "לא רלוונטי"})`
+                : `הגדרת מנוי (${pendingFlagChange?.value ? "מנוי" : "לא מנוי"})`}
+            </DialogTitle>
+            <DialogDescription>
+              להחיל על כל הנמענים בשם "{pendingFlagChange?.recipient}" (כולל בדוחות עתידיים), רק מהתאריך {pendingFlagChange?.date} ולהבא, או רק לתנועה זו?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setPendingFlagChange(null)}>ביטול</Button>
+            <Button variant="ghost" onClick={() => applyFlagChange("single")}>רק לתנועה זו</Button>
+            <Button variant="secondary" onClick={() => applyFlagChange("forward")}>מכאן ולהבא</Button>
+            <Button onClick={() => applyFlagChange("all")}>הגדר עבור כל הנמענים בעלי אותו שם</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -194,18 +194,42 @@ export function UploadReportDialog({ trigger }: UploadReportDialogProps) {
         .single();
       if (uploadError) throw uploadError;
 
+      // Load recipient preferences (relevant / subscription overrides)
+      const { data: prefsData } = await supabase
+        .from("recipient_preferences")
+        .select("recipient_name, field, value, from_date")
+        .eq("user_id", user!.id);
+      const prefsByName = new Map<string, { relevant?: { value: boolean; from_date: string | null }; subscription?: { value: boolean; from_date: string | null } }>();
+      (prefsData || []).forEach((p) => {
+        const key = p.recipient_name.trim();
+        const cur = prefsByName.get(key) || {};
+        if (p.field === "relevant") cur.relevant = { value: p.value, from_date: p.from_date };
+        else if (p.field === "subscription") cur.subscription = { value: p.value, from_date: p.from_date };
+        prefsByName.set(key, cur);
+      });
+
       const BATCH_SIZE = 500;
       for (let i = 0; i < finalParsed.length; i += BATCH_SIZE) {
-        const batch = finalParsed.slice(i, i + BATCH_SIZE).map((row) => ({
-          user_id: user!.id,
-          entity_id: entityId,
-          upload_id: uploadRecord.id,
-          date: row.date,
-          source_recipient: row.sourceRecipient,
-          value: row.value,
-          category_id: mapByName.get(row.sourceRecipient.trim()) ?? null,
-          raw_data: row.rawData as unknown as Json,
-        }));
+        const batch = finalParsed.slice(i, i + BATCH_SIZE).map((row) => {
+          const key = row.sourceRecipient.trim();
+          const prefs = prefsByName.get(key);
+          const relPref = prefs?.relevant;
+          const subPref = prefs?.subscription;
+          const applyRel = relPref && (!relPref.from_date || row.date >= relPref.from_date);
+          const applySub = subPref && (!subPref.from_date || row.date >= subPref.from_date);
+          return {
+            user_id: user!.id,
+            entity_id: entityId,
+            upload_id: uploadRecord.id,
+            date: row.date,
+            source_recipient: row.sourceRecipient,
+            value: row.value,
+            category_id: mapByName.get(key) ?? null,
+            raw_data: row.rawData as unknown as Json,
+            ...(applyRel ? { relevant_transaction: relPref!.value } : {}),
+            ...(applySub ? { subscription: subPref!.value } : {}),
+          };
+        });
         const { error: txError } = await supabase.from("transactions").insert(batch);
         if (txError) throw txError;
       }
