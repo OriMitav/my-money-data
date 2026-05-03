@@ -830,6 +830,28 @@ export default function TransactionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Flag (relevant/subscription) change scope dialog */}
+      <Dialog open={!!pendingFlagChange} onOpenChange={(v) => !v && setPendingFlagChange(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {pendingFlagChange?.field === "relevant_transaction"
+                ? `הגדרת רלוונטיות (${pendingFlagChange?.value ? "רלוונטי" : "לא רלוונטי"})`
+                : `הגדרת מנוי (${pendingFlagChange?.value ? "מנוי" : "לא מנוי"})`}
+            </DialogTitle>
+            <DialogDescription>
+              להחיל על כל הנמענים בשם "{pendingFlagChange?.recipient}" (כולל בדוחות עתידיים), רק מהתאריך {pendingFlagChange?.date} ולהבא, או רק לתנועה זו?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setPendingFlagChange(null)}>ביטול</Button>
+            <Button variant="ghost" onClick={() => applyFlagChange("single")}>רק לתנועה זו</Button>
+            <Button variant="secondary" onClick={() => applyFlagChange("forward")}>מכאן ולהבא</Button>
+            <Button onClick={() => applyFlagChange("all")}>הגדר עבור כל הנמענים בעלי אותו שם</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
