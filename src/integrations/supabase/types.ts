@@ -618,6 +618,39 @@ export type Database = {
         }
         Relationships: []
       }
+      recipient_preferences: {
+        Row: {
+          created_at: string
+          field: string
+          from_date: string | null
+          id: string
+          recipient_name: string
+          updated_at: string
+          user_id: string
+          value: boolean
+        }
+        Insert: {
+          created_at?: string
+          field: string
+          from_date?: string | null
+          id?: string
+          recipient_name: string
+          updated_at?: string
+          user_id: string
+          value: boolean
+        }
+        Update: {
+          created_at?: string
+          field?: string
+          from_date?: string | null
+          id?: string
+          recipient_name?: string
+          updated_at?: string
+          user_id?: string
+          value?: boolean
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           category_id: string | null
