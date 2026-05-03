@@ -2,3 +2,6 @@ project_id = "wgxtwpasbcbgfnnfvpee"
 
 [functions.categorize-recipients]
 verify_jwt = false
+
+[functions.monthly-property-snapshots]
+verify_jwt = false
