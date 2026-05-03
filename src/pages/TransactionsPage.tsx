@@ -70,6 +70,15 @@ export default function TransactionsPage() {
     newCategoryId: string | null;
   } | null>(null);
 
+  // Flag (relevant/subscription) change confirmation dialog
+  const [pendingFlagChange, setPendingFlagChange] = useState<{
+    transactionId: string;
+    recipient: string;
+    field: "relevant_transaction" | "subscription";
+    value: boolean;
+    date: string;
+  } | null>(null);
+
   // Filters - default to current month, with "to" defaulting to today
   const now = new Date();
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
