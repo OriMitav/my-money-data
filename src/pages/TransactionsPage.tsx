@@ -404,6 +404,7 @@ export default function TransactionsPage() {
     }
   };
 
+  const filtered = useMemo(() => {
     return transactions.filter((t) => {
       if (dateFrom && t.date < format(dateFrom, "yyyy-MM-dd")) return false;
       if (dateTo && t.date > format(dateTo, "yyyy-MM-dd")) return false;
