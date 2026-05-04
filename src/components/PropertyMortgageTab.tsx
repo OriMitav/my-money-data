@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import {
   Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity,
-  TrendingDown, Flame, Info, AlertTriangle
+  TrendingDown, Flame, Info, AlertTriangle, ChevronDown, ChevronLeft
 } from "lucide-react";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
@@ -266,6 +266,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   const qc = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [jsonText, setJsonText] = useState("");
+  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
 
   const { data: snapshots = [], isLoading } = useQuery({
     queryKey: ["mortgage_snapshots", propertyId],
@@ -312,11 +313,41 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["mortgage_snapshots", propertyId] });
       setOpenDialog(false);
       setJsonText("");
       toast.success("נתוני המשכנתא נשמרו");
+      // Sync recent_payments → property_cashflow (one row per loan/month, dedup via unique index)
+      try {
+        const rows: any[] = [];
+        (variables.loans || []).forEach((loan: any) => {
+          const loanId = String(loan.loan_account_number || loan.loan_number || "");
+          (loan.recent_payments || []).forEach((rp: RecentPayment) => {
+            const d = parseMonthYear(rp.month);
+            const amt = Number(rp.amount) || 0;
+            if (!d || !amt) return;
+            const iso = d.toISOString().slice(0, 10);
+            rows.push({
+              user_id: user!.id,
+              property_id: propertyId,
+              entry_date: iso,
+              subject: `החזר משכנתא • הלוואה ${loanId.slice(-4)}`,
+              amount: -Math.abs(amt),
+              source: "mortgage",
+              source_ref: `loan-${loanId}-${rp.month}`,
+            });
+          });
+        });
+        if (rows.length) {
+          const { error } = await supabase
+            .from("property_cashflow")
+            .upsert(rows, { onConflict: "property_id,source,source_ref", ignoreDuplicates: true });
+          if (!error) {
+            qc.invalidateQueries({ queryKey: ["property_cashflow", propertyId] });
+          }
+        }
+      } catch { /* non-fatal */ }
     },
     onError: (e: any) => toast.error(e.message),
   });
@@ -715,6 +746,48 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return out;
   }, [payload, paymentHistory, totalPMT]);
 
+  // ============ Monthly amortization schedule (forecast across all tracks) ============
+  const amortSchedule = useMemo(() => {
+    if (!payload) return [] as { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[];
+    const today = parseDate(payload.report_date) || new Date();
+    const states = tracksEnriched.map(t => ({
+      balance: t._balance,
+      rate: t._rate,
+      monthsLeft: t._months,
+      pmt: t._pmt,
+    }));
+    const HE_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+    const out: { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[] = [];
+    const maxMonths = Math.max(0, ...states.map(s => s.monthsLeft));
+    for (let m = 1; m <= maxMonths; m++) {
+      let interestSum = 0, principalSum = 0, balSum = 0;
+      states.forEach(s => {
+        if (s.monthsLeft > 0 && s.balance > 0 && s.rate != null) {
+          const r = (s.rate / 100) / 12;
+          const interest = s.balance * r;
+          const principal = Math.max(0, Math.min(s.balance, s.pmt - interest));
+          s.balance = Math.max(0, s.balance - principal);
+          s.monthsLeft--;
+          interestSum += interest;
+          principalSum += principal;
+        }
+        balSum += s.balance;
+      });
+      const payment = interestSum + principalSum;
+      if (payment <= 0) break;
+      const d = new Date(today.getFullYear(), today.getMonth() + m, 1);
+      out.push({
+        label: `${HE_MONTHS[d.getMonth()]} ${d.getFullYear()}`,
+        principal: Math.round(principalSum),
+        interest: Math.round(interestSum),
+        payment: Math.round(payment),
+        principalPct: payment > 0 ? (principalSum / payment) * 100 : 0,
+        balance: Math.round(balSum),
+      });
+    }
+    return out;
+  }, [payload, tracksEnriched]);
+
 
   // ============ Render ============
   return (
@@ -840,88 +913,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             );
           })()}
 
-          {/* ===== Section A2: Refinancing & Risk ===== */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Flame className="h-4 w-4 text-orange-500" />
-                מחזור וסיכונים
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {/* Linkage Impact */}
-                <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                    <TrendingUp className="h-3.5 w-3.5 text-red-600" /> מד ההצמדה
-                  </div>
-                  <div className="text-xl font-bold text-red-600 dark:text-red-400">
-                    {fmtILS(riskAgg.linkage)}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground mt-1">חוב שנוסף מהצמדה למדד</div>
-                </div>
-
-                {/* Hidden Fees */}
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                    <AlertCircle className="h-3.5 w-3.5" /> קנסות ועמלות חבויות
-                  </div>
-                  <div className="text-xl font-bold">{fmtILS(riskAgg.hiddenFees)}</div>
-                  <div className="text-[11px] text-muted-foreground mt-1">
-                    היוון: {fmtILS(riskAgg.capFee)} • ריבית שלא חויבה: {fmtILS(riskAgg.unbilled)} • אי-הודעה: {fmtILS(riskAgg.nonAdvance)}
-                  </div>
-                </div>
-
-                {/* Arrears */}
-                <div className={`rounded-lg border p-3 ${riskAgg.arrears > 0 ? "border-red-600 bg-red-600/10" : "bg-muted/30"}`}>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                    {riskAgg.arrears > 0 ? (
-                      <AlertTriangle className="h-3.5 w-3.5 text-red-600 animate-pulse" />
-                    ) : (
-                      <Activity className="h-3.5 w-3.5" />
-                    )}
-                    חוב פיגורים
-                  </div>
-                  <div className={`text-xl font-bold ${riskAgg.arrears > 0 ? "text-red-600 dark:text-red-400" : ""}`}>
-                    {fmtILS(riskAgg.arrears)}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground mt-1">
-                    {riskAgg.arrears > 0 ? "דרושה התייחסות מיידית!" : "אין חוב פיגורים"}
-                  </div>
-                </div>
-              </div>
-
-              {/* Refinance indicator per track */}
-              <div>
-                <div className="text-xs font-semibold text-muted-foreground mb-2">אינדיקטור כדאיות מחזור (לפי מסלול)</div>
-                <div className="flex flex-wrap gap-2">
-                  {tracksEnriched.filter(t => typeof t.comparison_interest_rate === "number").length === 0 && (
-                    <span className="text-xs text-muted-foreground">אין נתוני ריבית להשוואה במסלולים</span>
-                  )}
-                  {tracksEnriched.map((t, i) => {
-                    if (typeof t.comparison_interest_rate !== "number") return null;
-                    const market = getMarketCompare(t);
-                    const diff = t.comparison_interest_rate - market;
-                    // diff > 0 → existing comparison rate is higher than current market → refinance attractive
-                    const profitable = diff > 0.3;
-                    const neutral = Math.abs(diff) <= 0.3;
-                    const variant = profitable ? "default" : neutral ? "secondary" : "outline";
-                    const Icon = profitable ? TrendingDown : neutral ? Info : TrendingUp;
-                    return (
-                      <Badge key={i} variant={variant} className="gap-1 text-[11px]">
-                        <Icon className="h-3 w-3" />
-                        {t.track_name || `מסלול ${i + 1}`}: {fmtPct(t.comparison_interest_rate)} vs שוק {fmtPct(market)}
-                        {profitable && <span className="ml-1">— מחזור משתלם</span>}
-                        {neutral && <span className="ml-1">— ניטרלי</span>}
-                        {!profitable && !neutral && <span className="ml-1">— לא משתלם</span>}
-                      </Badge>
-                    );
-                  })}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
+          {/* (Refinance & risk section removed per product update) */}
 
           {/* ===== New: Payment History & Forecast + Balance Breakdown ===== */}
           <div className="grid lg:grid-cols-3 gap-4">
@@ -1078,6 +1070,43 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             </CardContent>
           </Card>
 
+          {/* ===== Amortization Schedule ===== */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">לוח סילוקין צפוי</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {amortSchedule.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">לא ניתן לחשב לוח סילוקין (חסרים נתוני ריבית).</p>
+              ) : (
+                <div className="max-h-[440px] overflow-y-auto overflow-x-auto border rounded-md">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-background z-10">
+                      <TableRow>
+                        <TableHead className="text-right whitespace-nowrap">חודש</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">תשלום קרן</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">תשלום ריבית</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">% קרן בתשלום</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">יתרה לסוף החודש</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {amortSchedule.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-right whitespace-nowrap text-xs">{r.label}</TableCell>
+                          <TableCell className="text-center whitespace-nowrap">{fmtILS(r.principal)}</TableCell>
+                          <TableCell className="text-center whitespace-nowrap">{fmtILS(r.interest)}</TableCell>
+                          <TableCell className="text-center whitespace-nowrap">{r.principalPct.toFixed(1)}%</TableCell>
+                          <TableCell className="text-center whitespace-nowrap font-medium">{fmtILS(r.balance)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* ===== Rate Matrix per category ===== */}
           <Card>
             <CardHeader className="pb-2">
@@ -1110,11 +1139,18 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   <TableBody>
                     {rateMatrix.map(row => {
                       const diff = row.avgRate != null ? row.avgRate - row.marketRate : null;
+                      const isOpen = !!expandedCats[row.category];
                       return (
                         <React.Fragment key={row.category}>
-                          <TableRow className="font-medium">
+                          <TableRow
+                            className="font-medium cursor-pointer hover:bg-muted/40"
+                            onClick={() => setExpandedCats(s => ({ ...s, [row.category]: !s[row.category] }))}
+                          >
                             <TableCell className="text-right">
                               <div className="flex items-center gap-2">
+                                {isOpen
+                                  ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                  : <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground" />}
                                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[row.category as keyof typeof COLORS] }} />
                                 {row.label}
                                 <Badge variant="outline" className="text-[10px]">{row.tracks.length}</Badge>
@@ -1139,7 +1175,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                             </TableCell>
                             <TableCell className="text-center whitespace-nowrap font-semibold">{fmtILS(row.pmt)}</TableCell>
                           </TableRow>
-                          {row.tracks.map((sub, i) => (
+                          {isOpen && row.tracks.map((sub, i) => (
                             <TableRow key={`${row.category}-${i}`} className="text-xs text-muted-foreground bg-muted/20">
                               <TableCell className="text-right pr-8">↳ {sub.name} <span className="text-[10px]">(הלוואה {sub.loanId.slice(-4)})</span></TableCell>
                               <TableCell className="text-center">{fmtILS(sub.balance)}</TableCell>
