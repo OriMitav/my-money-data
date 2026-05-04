@@ -83,10 +83,22 @@ const MARKET_DATA = {
 };
 
 const getRateForTrack = (track: MortgageTrack): number => {
+  if (typeof track.interest_rate_percent === "number" && track.interest_rate_percent > 0) return track.interest_rate_percent;
   if (typeof track.interest_rate === "number" && track.interest_rate > 0) return track.interest_rate;
   const t = (track.track_type || "").toLowerCase();
   if (t.includes("prime")) return MARKET_DATA.primeRate;
   if (t.includes("variable") || t.includes("מש")) return MARKET_DATA.variableAvgRate;
+  return MARKET_DATA.fixedAvgRate;
+};
+
+const trackPenalties = (t: MortgageTrack): number =>
+  (t.capitalization_fee || 0) + (t.accumulated_unbilled_interest || 0) + (t.non_advance_notice_fee || 0);
+
+const getMarketCompare = (t: MortgageTrack): number => {
+  const cat = classifyTrack(t);
+  if (cat === "prime") return MARKET_DATA.primeRate;
+  if (cat === "variable") return MARKET_DATA.variableAvgRate;
+  if (cat === "cpi") return MARKET_DATA.fixedAvgRate; // approximate
   return MARKET_DATA.fixedAvgRate;
 };
 
