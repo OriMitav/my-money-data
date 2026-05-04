@@ -293,7 +293,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   const exposure = useMemo(() => {
     const buckets: Record<string, number> = { prime: 0, cpi: 0, fixed: 0, variable: 0 };
     tracksEnriched.forEach(t => {
-      buckets[t._category] = (buckets[t._category] || 0) + (t.balance_with_fees ?? t.balance ?? 0);
+      buckets[t._category] = (buckets[t._category] || 0) + t._balance;
     });
     const total = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
     return {
@@ -309,9 +309,9 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     let best: Date | null = null;
     tracksEnriched.forEach(t => {
       if (t._category !== "variable") return;
-      if (!t.first_payment_date) return;
-      const start = new Date(t.first_payment_date);
-      let candidate = new Date(start);
+      const start = parseDate(t.first_payment_date);
+      if (!start) return;
+      const candidate = new Date(start);
       while (candidate <= today) {
         candidate.setFullYear(candidate.getFullYear() + 5);
       }
@@ -320,37 +320,45 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return best as Date | null;
   }, [tracksEnriched]);
 
-  // Forecast amortization: project total balance month-by-month until 2052
+  // Forecast amortization
   const amortization = useMemo(() => {
     if (!payload) return [] as { year: number; balance: number; type: "history" | "forecast" }[];
     // Historical
     const hist = [...snapshots]
       .slice()
       .reverse()
-      .map(s => ({
-        year: new Date(s.report_date).getFullYear() + new Date(s.report_date).getMonth() / 12,
-        balance: Number(s.total_balance_with_fees) || 0,
-        type: "history" as const,
-      }));
+      .map(s => {
+        const d = parseDate(s.report_date) || new Date();
+        return {
+          year: d.getFullYear() + d.getMonth() / 12,
+          balance: Number(s.total_balance_with_fees) || 0,
+          type: "history" as const,
+        };
+      });
 
-    // Project forward per track
-    const today = new Date(payload.report_date);
-    const horizonEnd = new Date(2052, 11, 31);
+    const today = parseDate(payload.report_date) || new Date();
+    const horizonEnd = new Date(2055, 11, 31);
     const totalMonths = monthsBetween(today, horizonEnd);
     const trackStates = tracksEnriched.map(t => ({
-      balance: t.balance_with_fees ?? t.balance ?? 0,
+      balance: t._balance,
       rate: t._rate,
       monthsLeft: t._months,
       pmt: t._pmt,
     }));
     const forecast: { year: number; balance: number; type: "forecast" }[] = [];
+    // Always include t=0 anchor so chart starts at current balance
+    forecast.push({
+      year: today.getFullYear() + today.getMonth() / 12,
+      balance: trackStates.reduce((s, ts) => s + ts.balance, 0),
+      type: "forecast",
+    });
     for (let m = 1; m <= totalMonths; m++) {
       let totalBal = 0;
       trackStates.forEach(ts => {
         if (ts.monthsLeft > 0 && ts.balance > 0) {
           const r = (ts.rate / 100) / 12;
           const interest = ts.balance * r;
-          const principal = Math.min(ts.balance, ts.pmt - interest);
+          const principal = Math.max(0, Math.min(ts.balance, ts.pmt - interest));
           ts.balance = Math.max(0, ts.balance - principal);
           ts.monthsLeft--;
         }
@@ -372,14 +380,16 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   // Stacked monthly payment over years (per track)
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
-    const today = new Date(payload.report_date);
-    const horizon = 2052;
+    const today = parseDate(payload.report_date) || new Date();
+    const horizon = 2055;
     const rows: Record<number, any> = {};
     const keys: string[] = [];
+    // Bucket tracks by friendly name to keep legend short
     tracksEnriched.forEach((t, i) => {
-      const key = (t.track_name || `מסלול ${i + 1}`) + ` (${t._loanId})`;
+      const baseName = t.track_name || `מסלול ${i + 1}`;
+      const key = `${baseName} #${i + 1}`;
       keys.push(key);
-      const end = t.end_date ? new Date(t.end_date) : null;
+      const end = parseDate(t.end_date);
       const startY = today.getFullYear();
       const endY = end ? end.getFullYear() : startY;
       for (let y = startY; y <= horizon; y++) {
