@@ -15,8 +15,10 @@ import {
   PieChart, Pie, Cell, Legend, BarChart, Bar
 } from "recharts";
 import {
-  Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity
+  Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity,
+  TrendingDown, Flame, Info, AlertTriangle
 } from "lucide-react";
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 // =================== Types ===================
@@ -31,11 +33,20 @@ interface MortgageTrack {
   end_date?: string;
   original_amount?: number;
   monthly_payment?: number;
+  // Extended schema
+  interest_rate_percent?: number;
+  comparison_interest_rate?: number;
+  linkage_differences?: number;
+  capitalization_fee?: number;
+  accumulated_unbilled_interest?: number;
+  non_advance_notice_fee?: number;
+  arrears_debt?: number;
 }
 
 interface MortgageLoan {
   loan_account_number?: string | number;
   bank?: string;
+  loan_type?: string;
   tracks?: MortgageTrack[];
 }
 
