@@ -439,7 +439,89 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             </Card>
           )}
 
-          {/* ===== Section B: Charts ===== */}
+          {/* ===== Section A2: Refinancing & Risk ===== */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Flame className="h-4 w-4 text-orange-500" />
+                מחזור וסיכונים
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Linkage Impact */}
+                <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                    <TrendingUp className="h-3.5 w-3.5 text-red-600" /> מד ההצמדה
+                  </div>
+                  <div className="text-xl font-bold text-red-600 dark:text-red-400">
+                    {fmtILS(riskAgg.linkage)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">חוב שנוסף מהצמדה למדד</div>
+                </div>
+
+                {/* Hidden Fees */}
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                    <AlertCircle className="h-3.5 w-3.5" /> קנסות ועמלות חבויות
+                  </div>
+                  <div className="text-xl font-bold">{fmtILS(riskAgg.hiddenFees)}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    היוון: {fmtILS(riskAgg.capFee)} • ריבית שלא חויבה: {fmtILS(riskAgg.unbilled)} • אי-הודעה: {fmtILS(riskAgg.nonAdvance)}
+                  </div>
+                </div>
+
+                {/* Arrears */}
+                <div className={`rounded-lg border p-3 ${riskAgg.arrears > 0 ? "border-red-600 bg-red-600/10" : "bg-muted/30"}`}>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                    {riskAgg.arrears > 0 ? (
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-600 animate-pulse" />
+                    ) : (
+                      <Activity className="h-3.5 w-3.5" />
+                    )}
+                    חוב פיגורים
+                  </div>
+                  <div className={`text-xl font-bold ${riskAgg.arrears > 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+                    {fmtILS(riskAgg.arrears)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {riskAgg.arrears > 0 ? "דרושה התייחסות מיידית!" : "אין חוב פיגורים"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Refinance indicator per track */}
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground mb-2">אינדיקטור כדאיות מחזור (לפי מסלול)</div>
+                <div className="flex flex-wrap gap-2">
+                  {tracksEnriched.filter(t => typeof t.comparison_interest_rate === "number").length === 0 && (
+                    <span className="text-xs text-muted-foreground">אין נתוני ריבית להשוואה במסלולים</span>
+                  )}
+                  {tracksEnriched.map((t, i) => {
+                    if (typeof t.comparison_interest_rate !== "number") return null;
+                    const market = getMarketCompare(t);
+                    const diff = t.comparison_interest_rate - market;
+                    // diff > 0 → existing comparison rate is higher than current market → refinance attractive
+                    const profitable = diff > 0.3;
+                    const neutral = Math.abs(diff) <= 0.3;
+                    const variant = profitable ? "default" : neutral ? "secondary" : "outline";
+                    const Icon = profitable ? TrendingDown : neutral ? Info : TrendingUp;
+                    return (
+                      <Badge key={i} variant={variant} className="gap-1 text-[11px]">
+                        <Icon className="h-3 w-3" />
+                        {t.track_name || `מסלול ${i + 1}`}: {fmtPct(t.comparison_interest_rate)} vs שוק {fmtPct(market)}
+                        {profitable && <span className="ml-1">— מחזור משתלם</span>}
+                        {neutral && <span className="ml-1">— ניטרלי</span>}
+                        {!profitable && !neutral && <span className="ml-1">— לא משתלם</span>}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+
           <div className="grid lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-base">התפלגות חוב ותחזית סילוק</CardTitle></CardHeader>
