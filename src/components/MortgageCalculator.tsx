@@ -218,7 +218,7 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
       let bal = 0;
       activeMix.tracks.forEach((t, i) => {
         const rows = computed.perTrack[i] || [];
-        if (m === 0) bal += t.amount;
+        if (m === 0) bal += trackAmount(t, mortgageAmount);
         else {
           const r = rows.find(rr => rr.month === m);
           if (r) bal += r.balance;
