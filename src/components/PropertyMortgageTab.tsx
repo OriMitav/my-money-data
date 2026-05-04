@@ -837,7 +837,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           <DialogHeader>
             <DialogTitle>עדכון נתוני משכנתא</DialogTitle>
             <DialogDescription>
-              הדבק את נתוני המשכנתא בפורמט JSON. נדרש: report_date, total_mortgage_balance_without_fees, total_mortgage_balance_with_fees, loans[]
+              הדבק נתוני משכנתא בפורמט JSON. תאריכים נתמכים: dd.mm.yyyy, dd/mm/yyyy או yyyy-mm-dd. אם הסכומים הכוללים חסרים — יחושבו אוטומטית מהמסלולים.
             </DialogDescription>
           </DialogHeader>
           <Textarea
