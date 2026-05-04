@@ -446,6 +446,69 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       color: COLORS[k as keyof typeof COLORS],
     }));
 
+  // ============ Rate matrix per category (weighted by balance) ============
+  const rateMatrix = useMemo(() => {
+    const CAT_LABEL: Record<string, string> = {
+      prime: "ריבית פריים",
+      fixed: "ריבית קבועה",
+      variable: "ריבית משתנה",
+      cpi: "צמוד מדד",
+    };
+    const groups: Record<string, {
+      label: string;
+      balance: number;
+      weightedRateNum: number;   // sum of (rate * balance) where rate exists
+      weightedRateDen: number;   // sum of balance where rate exists
+      pmt: number;
+      tracks: Array<{ name: string; balance: number; rate: number | null; pmt: number; loanId: string }>;
+      missingRateBalance: number;
+    }> = {};
+    tracksEnriched.forEach(t => {
+      const cat = t._category;
+      if (!groups[cat]) {
+        groups[cat] = {
+          label: CAT_LABEL[cat] || "אחר",
+          balance: 0, weightedRateNum: 0, weightedRateDen: 0, pmt: 0,
+          tracks: [], missingRateBalance: 0,
+        };
+      }
+      const g = groups[cat];
+      g.balance += t._balance;
+      g.pmt += t._pmt;
+      if (t._rate != null) {
+        g.weightedRateNum += t._rate * t._balance;
+        g.weightedRateDen += t._balance;
+      } else {
+        g.missingRateBalance += t._balance;
+      }
+      g.tracks.push({
+        name: t.track_name || `מסלול`,
+        balance: t._balance,
+        rate: t._rate,
+        pmt: t._pmt,
+        loanId: t._loanId,
+      });
+    });
+    return Object.entries(groups)
+      .map(([cat, g]) => ({
+        category: cat,
+        label: g.label,
+        balance: g.balance,
+        avgRate: g.weightedRateDen > 0 ? g.weightedRateNum / g.weightedRateDen : null,
+        marketRate: cat === "prime" ? MARKET_DATA.primeRate
+          : cat === "variable" ? MARKET_DATA.variableAvgRate
+          : cat === "cpi" ? MARKET_DATA.fixedAvgRate
+          : MARKET_DATA.fixedAvgRate,
+        pmt: g.pmt,
+        tracks: g.tracks.sort((a, b) => b.balance - a.balance),
+        missingRateBalance: g.missingRateBalance,
+      }))
+      .sort((a, b) => b.balance - a.balance);
+  }, [tracksEnriched]);
+
+  // Sanity check: tracks missing both rate and reported PMT
+  const missingDataTracks = tracksEnriched.filter(t => !t._hasRate && !t._hasReportedPmt && t._balance > 0);
+
   // ============ Render ============
   return (
     <div dir="rtl" className="space-y-4 sm:space-y-6">
