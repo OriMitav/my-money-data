@@ -84,8 +84,23 @@
   * {
     @apply border-border;
   }
-  body {
+  html, body {
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+}
+
+@layer utilities {
+  /* Mobile: enforce 44px minimum touch targets for primary controls */
+  @media (max-width: 767px) {
+    button:not([data-no-touch-min]),
+    [role="button"]:not([data-no-touch-min]),
+    input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+    select,
+    textarea {
+      min-height: 44px;
+    }
   }
 }
