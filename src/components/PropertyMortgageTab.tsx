@@ -225,6 +225,26 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   const totalPMT = tracksEnriched.reduce((s, t) => s + t._pmt, 0);
 
+  // Risk & Refinancing aggregates
+  const riskAgg = useMemo(() => {
+    let linkage = 0, capFee = 0, unbilled = 0, nonAdvance = 0, arrears = 0;
+    tracksEnriched.forEach(t => {
+      linkage += t.linkage_differences || 0;
+      capFee += t.capitalization_fee || 0;
+      unbilled += t.accumulated_unbilled_interest || 0;
+      nonAdvance += t.non_advance_notice_fee || 0;
+      arrears += t.arrears_debt || 0;
+    });
+    return {
+      linkage,
+      capFee,
+      unbilled,
+      nonAdvance,
+      arrears,
+      hiddenFees: capFee + unbilled + nonAdvance,
+    };
+  }, [tracksEnriched]);
+
   const exposure = useMemo(() => {
     const buckets: Record<string, number> = { prime: 0, cpi: 0, fixed: 0, variable: 0 };
     tracksEnriched.forEach(t => {
