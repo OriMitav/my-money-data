@@ -923,6 +923,53 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           </Card>
 
 
+          {/* ===== New: Payment History & Forecast + Balance Breakdown ===== */}
+          <div className="grid lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">היסטוריית תשלומים ותחזית</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer>
+                    <BarChart data={paymentHistoryAndForecast} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}K`} />
+                      <RTooltip formatter={(v: number, name: string) => [fmtILS(Number(v)), name === "actual" ? "בפועל" : "תחזית"]} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => (v === "actual" ? "בפועל" : "תחזית")} />
+                      <Bar dataKey="actual" fill="hsl(200, 75%, 50%)" name="actual" />
+                      <Bar dataKey="forecast" fill="hsl(200, 75%, 50%)" fillOpacity={0.35} name="forecast" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 text-center">עמודות מלאות = בפועל • שקופות = תחזית</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">הרכב היתרה הנוכחית</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {balanceBreakdownData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-xs text-muted-foreground">אין נתוני פירוק יתרה</div>
+                  ) : (
+                    <ResponsiveContainer>
+                      <PieChart>
+                        <Pie data={balanceBreakdownData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={85} paddingAngle={2}>
+                          {balanceBreakdownData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
+                        </Pie>
+                        <RTooltip formatter={(v: number) => fmtILS(Number(v))} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="grid lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-base">התפלגות חוב ותחזית סילוק</CardTitle></CardHeader>
