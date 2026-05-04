@@ -293,6 +293,42 @@ export type Database = {
           },
         ]
       }
+      mortgage_comparisons: {
+        Row: {
+          created_at: string
+          id: string
+          income: number
+          mixes: Json
+          mortgage_amount: number
+          name: string
+          property_value: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          income?: number
+          mixes?: Json
+          mortgage_amount?: number
+          name: string
+          property_value?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          income?: number
+          mixes?: Json
+          mortgage_amount?: number
+          name?: string
+          property_value?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pension_entries: {
         Row: {
           closing_balance: number
