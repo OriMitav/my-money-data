@@ -425,6 +425,7 @@ export default function AssetsPage() {
         <TabsList className="w-full flex overflow-x-auto">
           <TabsTrigger value="rent" className="flex-1 text-xs sm:text-sm">ניתוח שכירות</TabsTrigger>
           <TabsTrigger value="sale" className="flex-1 text-xs sm:text-sm">שווי נכס</TabsTrigger>
+          <TabsTrigger value="mortgage" className="flex-1 text-xs sm:text-sm">המשכנתא</TabsTrigger>
         </TabsList>
 
         <TabsContent value="rent">
