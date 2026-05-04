@@ -166,20 +166,21 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
     tracks: m.tracks.map(t => t.id === tid ? { ...t, ...patch } : t),
   }));
 
-  const sumTracks = activeMix.tracks.reduce((s, t) => s + (t.amount || 0), 0);
-  const tracksMatch = Math.abs(sumTracks - mortgageAmount) < 1;
+  const sumPct = activeMix.tracks.reduce((s, t) => s + (t.pct || 0), 0);
+  const sumTracks = (sumPct / 100) * mortgageAmount;
+  const tracksMatch = Math.abs(sumPct - 100) < 0.01;
 
   // ===== Computed per active mix =====
   const computed = useMemo(() => {
-    return computeMix(activeMix);
-  }, [activeMix]);
+    return computeMix(activeMix, mortgageAmount);
+  }, [activeMix, mortgageAmount]);
 
   // ===== Comparison summary across mixes =====
   const comparison = useMemo(() => {
     return mixes.map(m => {
-      const c = computeMix(m);
+      const c = computeMix(m, mortgageAmount);
       const total = c.totalPayment;
-      const principal = m.tracks.reduce((s, t) => s + t.amount, 0);
+      const principal = m.tracks.reduce((s, t) => s + trackAmount(t, mortgageAmount), 0);
       return {
         id: m.id,
         name: m.name,
@@ -189,7 +190,7 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
         principal,
       };
     });
-  }, [mixes]);
+  }, [mixes, mortgageAmount]);
 
   // ===== Charts data =====
   const yearlyStacked = useMemo(() => {
