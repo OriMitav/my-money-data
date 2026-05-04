@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import modiinPolygons from "@/assets/modiin_polygons.json";
+import MortgageCalculator from "@/components/MortgageCalculator";
 
 const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
@@ -72,6 +73,7 @@ export default function AssetsPage() {
   const qc = useQueryClient();
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showMortgageCalc, setShowMortgageCalc] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [drawerData, setDrawerData] = useState<any[] | null>(null);
   const [fetchingType, setFetchingType] = useState<string | null>(null);
@@ -210,10 +212,16 @@ export default function AssetsPage() {
       <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-0" dir="rtl">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">נכסים</h1>
-          <Button onClick={() => { setForm({ title: "", city: "", street: "", house_number: "", purchase_price: 0, apify_token: "", apify_actor_sale_id: "", apify_actor_rent_id: "" }); setShowCreate(true); }}>
-            <Plus className="h-4 w-4 ml-1" /> הוסף נכס
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setShowMortgageCalc(true)}>
+              <Home className="h-4 w-4 ml-1" /> מחשבון משכנתא
+            </Button>
+            <Button onClick={() => { setForm({ title: "", city: "", street: "", house_number: "", purchase_price: 0, apify_token: "", apify_actor_sale_id: "", apify_actor_rent_id: "" }); setShowCreate(true); }}>
+              <Plus className="h-4 w-4 ml-1" /> הוסף נכס
+            </Button>
+          </div>
         </div>
+        <MortgageCalculator open={showMortgageCalc} onOpenChange={setShowMortgageCalc} />
 
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="animate-spin h-8 w-8 text-muted-foreground" /></div>
