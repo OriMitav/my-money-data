@@ -115,16 +115,15 @@ const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "
   return "fixed";
 };
 
-const getRateForTrack = (track: MortgageTrack): number => {
+// Returns the actual interest rate from the JSON, or null when missing.
+// We intentionally do NOT fall back to market rates anymore — the chart and
+// PMT calculations should be based strictly on the user's bank data.
+const getRateForTrack = (track: MortgageTrack): number | null => {
   const r1 = track.interest_rate_percent;
   if (typeof r1 === "number" && r1 > 0) return r1;
   const r2 = track.interest_rate;
   if (typeof r2 === "number" && r2 > 0) return r2;
-  const cat = classifyTrack(track);
-  if (cat === "prime") return MARKET_DATA.primeRate;
-  if (cat === "variable") return MARKET_DATA.variableAvgRate;
-  if (cat === "cpi") return MARKET_DATA.fixedAvgRate;
-  return MARKET_DATA.fixedAvgRate;
+  return null;
 };
 
 const trackPenalties = (t: MortgageTrack): number =>
