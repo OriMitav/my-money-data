@@ -329,6 +329,42 @@ export type Database = {
         }
         Relationships: []
       }
+      mortgage_snapshots: {
+        Row: {
+          created_at: string
+          id: string
+          payload: Json
+          property_id: string
+          report_date: string
+          total_balance_with_fees: number
+          total_balance_without_fees: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          property_id: string
+          report_date: string
+          total_balance_with_fees?: number
+          total_balance_without_fees?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload?: Json
+          property_id?: string
+          report_date?: string
+          total_balance_with_fees?: number
+          total_balance_without_fees?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pension_entries: {
         Row: {
           closing_balance: number
