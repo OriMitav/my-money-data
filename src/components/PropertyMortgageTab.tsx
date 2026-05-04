@@ -784,6 +784,94 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             </CardContent>
           </Card>
 
+          {/* ===== Rate Matrix per category ===== */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                מטריצת ריביות לפי מסלול
+                <span className="text-xs font-normal text-muted-foreground">(החזר מבוסס על נתוני ה-JSON בלבד)</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {missingDataTracks.length > 0 && (
+                <div className="mb-3 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    {missingDataTracks.length} מסלולים חסרים גם <b>ריבית</b> וגם <b>monthly_payment</b> ב-JSON, ולכן לא נכללים בהחזר החודשי. סה"כ יתרה לא מחושבת: {fmtILS(missingDataTracks.reduce((s, t) => s + t._balance, 0))}.
+                  </span>
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-right">מסלול</TableHead>
+                      <TableHead className="text-center">סך יתרה</TableHead>
+                      <TableHead className="text-center">ריבית ממוצעת (משוקללת)</TableHead>
+                      <TableHead className="text-center">ריבית שוק להשוואה</TableHead>
+                      <TableHead className="text-center">פער</TableHead>
+                      <TableHead className="text-center">החזר חודשי</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rateMatrix.map(row => {
+                      const diff = row.avgRate != null ? row.avgRate - row.marketRate : null;
+                      return (
+                        <>
+                          <TableRow key={row.category} className="font-medium">
+                            <TableCell className="text-right">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[row.category as keyof typeof COLORS] }} />
+                                {row.label}
+                                <Badge variant="outline" className="text-[10px]">{row.tracks.length}</Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap">{fmtILS(row.balance)}</TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              {row.avgRate != null ? fmtPct(row.avgRate) : <span className="text-muted-foreground text-xs">חסר</span>}
+                              {row.missingRateBalance > 0 && row.avgRate != null && (
+                                <div className="text-[10px] text-amber-600 dark:text-amber-400">
+                                  ל-{fmtILS(row.missingRateBalance)} חסרה ריבית
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap text-muted-foreground">{fmtPct(row.marketRate)}</TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              {diff == null ? "—" : (
+                                <Badge variant={diff < 0 ? "default" : "destructive"} className="text-[10px]">
+                                  {diff > 0 ? "+" : ""}{diff.toFixed(2)}%
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap font-semibold">{fmtILS(row.pmt)}</TableCell>
+                          </TableRow>
+                          {row.tracks.map((sub, i) => (
+                            <TableRow key={`${row.category}-${i}`} className="text-xs text-muted-foreground bg-muted/20">
+                              <TableCell className="text-right pr-8">↳ {sub.name} <span className="text-[10px]">(הלוואה {sub.loanId.slice(-4)})</span></TableCell>
+                              <TableCell className="text-center">{fmtILS(sub.balance)}</TableCell>
+                              <TableCell className="text-center">{sub.rate != null ? fmtPct(sub.rate) : <span className="text-amber-600 dark:text-amber-400">חסר</span>}</TableCell>
+                              <TableCell className="text-center">—</TableCell>
+                              <TableCell className="text-center">—</TableCell>
+                              <TableCell className="text-center">{sub.pmt > 0 ? fmtILS(sub.pmt) : "—"}</TableCell>
+                            </TableRow>
+                          ))}
+                        </>
+                      );
+                    })}
+                    <TableRow className="font-bold border-t-2">
+                      <TableCell className="text-right">סה"כ</TableCell>
+                      <TableCell className="text-center">{fmtILS(rateMatrix.reduce((s, r) => s + r.balance, 0))}</TableCell>
+                      <TableCell className="text-center">—</TableCell>
+                      <TableCell className="text-center">—</TableCell>
+                      <TableCell className="text-center">—</TableCell>
+                      <TableCell className="text-center">{fmtILS(rateMatrix.reduce((s, r) => s + r.pmt, 0))}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* ===== Section C: Loans Accordion ===== */}
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">פירוט הלוואות ומסלולים</CardTitle></CardHeader>
