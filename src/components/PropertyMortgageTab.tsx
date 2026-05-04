@@ -312,11 +312,41 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       });
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["mortgage_snapshots", propertyId] });
       setOpenDialog(false);
       setJsonText("");
       toast.success("נתוני המשכנתא נשמרו");
+      // Sync recent_payments → property_cashflow (one row per loan/month, dedup via unique index)
+      try {
+        const rows: any[] = [];
+        (variables.loans || []).forEach((loan: any) => {
+          const loanId = String(loan.loan_account_number || loan.loan_number || "");
+          (loan.recent_payments || []).forEach((rp: RecentPayment) => {
+            const d = parseMonthYear(rp.month);
+            const amt = Number(rp.amount) || 0;
+            if (!d || !amt) return;
+            const iso = d.toISOString().slice(0, 10);
+            rows.push({
+              user_id: user!.id,
+              property_id: propertyId,
+              entry_date: iso,
+              subject: `החזר משכנתא • הלוואה ${loanId.slice(-4)}`,
+              amount: -Math.abs(amt),
+              source: "mortgage",
+              source_ref: `loan-${loanId}-${rp.month}`,
+            });
+          });
+        });
+        if (rows.length) {
+          const { error } = await supabase
+            .from("property_cashflow")
+            .upsert(rows, { onConflict: "property_id,source,source_ref", ignoreDuplicates: true });
+          if (!error) {
+            qc.invalidateQueries({ queryKey: ["property_cashflow", propertyId] });
+          }
+        }
+      } catch { /* non-fatal */ }
     },
     onError: (e: any) => toast.error(e.message),
   });
