@@ -746,6 +746,48 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return out;
   }, [payload, paymentHistory, totalPMT]);
 
+  // ============ Monthly amortization schedule (forecast across all tracks) ============
+  const amortSchedule = useMemo(() => {
+    if (!payload) return [] as { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[];
+    const today = parseDate(payload.report_date) || new Date();
+    const states = tracksEnriched.map(t => ({
+      balance: t._balance,
+      rate: t._rate,
+      monthsLeft: t._months,
+      pmt: t._pmt,
+    }));
+    const HE_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
+    const out: { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[] = [];
+    const maxMonths = Math.max(0, ...states.map(s => s.monthsLeft));
+    for (let m = 1; m <= maxMonths; m++) {
+      let interestSum = 0, principalSum = 0, balSum = 0;
+      states.forEach(s => {
+        if (s.monthsLeft > 0 && s.balance > 0 && s.rate != null) {
+          const r = (s.rate / 100) / 12;
+          const interest = s.balance * r;
+          const principal = Math.max(0, Math.min(s.balance, s.pmt - interest));
+          s.balance = Math.max(0, s.balance - principal);
+          s.monthsLeft--;
+          interestSum += interest;
+          principalSum += principal;
+        }
+        balSum += s.balance;
+      });
+      const payment = interestSum + principalSum;
+      if (payment <= 0) break;
+      const d = new Date(today.getFullYear(), today.getMonth() + m, 1);
+      out.push({
+        label: `${HE_MONTHS[d.getMonth()]} ${d.getFullYear()}`,
+        principal: Math.round(principalSum),
+        interest: Math.round(interestSum),
+        payment: Math.round(payment),
+        principalPct: payment > 0 ? (principalSum / payment) * 100 : 0,
+        balance: Math.round(balSum),
+      });
+    }
+    return out;
+  }, [payload, tracksEnriched]);
+
 
   // ============ Render ============
   return (
