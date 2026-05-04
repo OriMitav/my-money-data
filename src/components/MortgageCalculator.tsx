@@ -23,14 +23,14 @@ export const MARKET_DATA = {
   cpiAnnual: 2.8,      // מדד שנתי משוער
 };
 
-type TrackType = "פריים" | 'קל"צ' | 'ק"צ' | 'מל"צ' | 'מ"צ';
+type TrackType = "פריים" | "קבועה לא צמודה" | "קבועה צמודה" | "משתנה לא צמודה" | "משתנה צמודה";
 type Schedule = "שפיצר" | "קרן שווה";
 
 interface Track {
   id: string;
   type: TrackType;
   schedule: Schedule;
-  amount: number;
+  pct: number; // percent of total mortgage
   months: number;
   rate: number; // annual %
 }
@@ -41,25 +41,44 @@ interface Mix {
   tracks: Track[];
 }
 
-const TRACK_TYPES: TrackType[] = ["פריים", 'קל"צ', 'ק"צ', 'מל"צ', 'מ"צ'];
+const TRACK_TYPES: TrackType[] = ["פריים", "קבועה לא צמודה", "קבועה צמודה", "משתנה לא צמודה", "משתנה צמודה"];
 const SCHEDULES: Schedule[] = ["שפיצר", "קרן שווה"];
 const TRACK_COLORS = ["hsl(var(--primary))", "hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)", "hsl(280 65% 60%)", "hsl(346 87% 53%)"];
 
 const fmt = (n: number) => Math.round(n).toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
+const fmtNum = (n: number) => Math.round(n).toLocaleString("en-US");
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+// Number input with thousands separators
+function NumberInput({ value, onChange, className, placeholder }: { value: number; onChange: (n: number) => void; className?: string; placeholder?: string }) {
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      dir="ltr"
+      className={className}
+      placeholder={placeholder}
+      value={value ? fmtNum(value) : ""}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d]/g, "");
+        onChange(raw ? Number(raw) : 0);
+      }}
+    />
+  );
+}
 
 function defaultRateFor(type: TrackType): number {
   switch (type) {
     case "פריים": return MARKET_DATA.primeRate - 0.5;
-    case 'קל"צ': return 4.8;
-    case 'ק"צ': return 3.6;
-    case 'מל"צ': return 4.5;
-    case 'מ"צ': return 3.8;
+    case "קבועה לא צמודה": return 4.8;
+    case "קבועה צמודה": return 3.6;
+    case "משתנה לא צמודה": return 4.5;
+    case "משתנה צמודה": return 3.8;
   }
 }
 
 function isLinked(type: TrackType): boolean {
-  return type === 'ק"צ' || type === 'מ"צ';
+  return type === "קבועה צמודה" || type === "משתנה צמודה";
 }
 
 // ===== Amortization =====
