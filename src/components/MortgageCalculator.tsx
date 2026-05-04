@@ -353,17 +353,26 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <Label className="text-xs">סכום</Label>
-                        <Input type="number" value={t.amount || ""} onChange={e => patchTrack(t.id, { amount: Number(e.target.value) })} />
+                        <Label className="text-xs">אחוז מההלוואה</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          dir="ltr"
+                          value={t.pct || ""}
+                          onChange={e => patchTrack(t.id, { pct: Number(e.target.value) })}
+                        />
+                        <span className="text-[10px] text-muted-foreground">
+                          ≈ {fmt(trackAmount(t, mortgageAmount))}
+                        </span>
                       </div>
                       <div>
                         <Label className="text-xs">תקופה (חודשים)</Label>
-                        <Input type="number" value={t.months || ""} onChange={e => patchTrack(t.id, { months: Number(e.target.value) })} />
+                        <NumberInput value={t.months} onChange={(v) => patchTrack(t.id, { months: v })} />
                         <span className="text-[10px] text-muted-foreground">{(t.months / 12).toFixed(1)} שנים</span>
                       </div>
                       <div>
                         <Label className="text-xs">ריבית %</Label>
-                        <Input type="number" step="0.01" value={t.rate || ""} onChange={e => patchTrack(t.id, { rate: Number(e.target.value) })} />
+                        <Input type="number" step="0.01" dir="ltr" value={t.rate || ""} onChange={e => patchTrack(t.id, { rate: Number(e.target.value) })} />
                       </div>
                     </div>
                     <div className="flex justify-between items-center">
@@ -384,10 +393,10 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                 }`}>
                   <div className="flex items-center gap-2 text-sm">
                     {tracksMatch ? <Check className="h-4 w-4 text-green-600" /> : <AlertCircle className="h-4 w-4 text-destructive" />}
-                    <span>סך המסלולים: {fmt(sumTracks)} / {fmt(mortgageAmount)}</span>
+                    <span>סך אחוזי המסלולים: {sumPct.toFixed(1)}% ({fmt(sumTracks)} / {fmt(mortgageAmount)})</span>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    הפרש: {fmt(mortgageAmount - sumTracks)}
+                    הפרש: {(100 - sumPct).toFixed(1)}%
                   </span>
                 </div>
               </CardContent>
