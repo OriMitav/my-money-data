@@ -1,4 +1,15 @@
-import { Upload, ArrowLeftRight, LayoutDashboard, LogOut, Settings, Receipt, PiggyBank, CreditCard, Building2, Home } from "lucide-react";
+import {
+  Upload,
+  ArrowLeftRight,
+  LayoutDashboard,
+  LogOut,
+  Settings,
+  Receipt,
+  PiggyBank,
+  CreditCard,
+  Building2,
+  Home,
+} from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -39,7 +50,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>
             {!collapsed && (
-              <span className="text-xs font-bold uppercase tracking-wider text-sidebar-primary">תזרים מזומנים</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-sidebar-primary">תזרים משפחתי</span>
             )}
           </SidebarGroupLabel>
           <SidebarGroupContent>
