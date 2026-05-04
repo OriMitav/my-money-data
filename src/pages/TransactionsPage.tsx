@@ -81,6 +81,10 @@ export default function TransactionsPage() {
     date: string;
   } | null>(null);
 
+  // For Whom editing
+  const [forWhomEditing, setForWhomEditing] = useState<{ tx: TransactionRow; value: string } | null>(null);
+  const [pendingForWhom, setPendingForWhom] = useState<{ tx: TransactionRow; value: string } | null>(null);
+
   // Filters - default to current month, with "to" defaulting to today
   const now = new Date();
   const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
