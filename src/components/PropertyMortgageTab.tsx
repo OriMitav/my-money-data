@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -115,16 +115,15 @@ const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "
   return "fixed";
 };
 
-const getRateForTrack = (track: MortgageTrack): number => {
+// Returns the actual interest rate from the JSON, or null when missing.
+// We intentionally do NOT fall back to market rates anymore — the chart and
+// PMT calculations should be based strictly on the user's bank data.
+const getRateForTrack = (track: MortgageTrack): number | null => {
   const r1 = track.interest_rate_percent;
   if (typeof r1 === "number" && r1 > 0) return r1;
   const r2 = track.interest_rate;
   if (typeof r2 === "number" && r2 > 0) return r2;
-  const cat = classifyTrack(track);
-  if (cat === "prime") return MARKET_DATA.primeRate;
-  if (cat === "variable") return MARKET_DATA.variableAvgRate;
-  if (cat === "cpi") return MARKET_DATA.fixedAvgRate;
-  return MARKET_DATA.fixedAvgRate;
+  return null;
 };
 
 const trackPenalties = (t: MortgageTrack): number =>
@@ -243,19 +242,23 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   // ============ Derived calculations ============
   const tracksEnriched = useMemo(() => {
-    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _loanType: string; _pmt: number; _months: number; _rate: number; _category: string; _balance: number }>;
+    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _loanType: string; _pmt: number; _months: number; _rate: number | null; _category: string; _balance: number; _hasRate: boolean; _hasReportedPmt: boolean }>;
     const today = parseDate(payload.report_date) || new Date();
     const out: any[] = [];
     for (const loan of payload.loans || []) {
       for (const t of loan.tracks || []) {
         const end = parseDate(t.end_date);
         const months = end ? monthsBetween(today, end) : 0;
-        const rate = getRateForTrack(t);
+        const rate = getRateForTrack(t); // null if not in JSON
         const balance = getTrackBalance(t);
-        // Prefer the bank-reported monthly payment when available (most accurate);
-        // fall back to Spitzer based on current balance + remaining months.
         const reportedPmt = Number(t.monthly_payment) || 0;
-        const pmt = reportedPmt > 0 ? reportedPmt : spitzerPMT(balance, rate, months);
+        // Strict: use only data that comes from the JSON.
+        // 1) Reported monthly_payment wins.
+        // 2) Otherwise compute Spitzer ONLY if a real interest rate exists in the JSON.
+        // 3) Otherwise 0 (surfaced in UI as "חסר נתון").
+        let pmt = 0;
+        if (reportedPmt > 0) pmt = reportedPmt;
+        else if (rate != null && balance > 0 && months > 0) pmt = spitzerPMT(balance, rate, months);
         out.push({
           ...t,
           _loanId: String(loan.loan_account_number || ""),
@@ -265,6 +268,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           _rate: rate,
           _category: classifyTrack(t),
           _balance: balance,
+          _hasRate: rate != null,
+          _hasReportedPmt: reportedPmt > 0,
         });
       }
     }
@@ -440,6 +445,69 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       value: v,
       color: COLORS[k as keyof typeof COLORS],
     }));
+
+  // ============ Rate matrix per category (weighted by balance) ============
+  const rateMatrix = useMemo(() => {
+    const CAT_LABEL: Record<string, string> = {
+      prime: "ריבית פריים",
+      fixed: "ריבית קבועה",
+      variable: "ריבית משתנה",
+      cpi: "צמוד מדד",
+    };
+    const groups: Record<string, {
+      label: string;
+      balance: number;
+      weightedRateNum: number;   // sum of (rate * balance) where rate exists
+      weightedRateDen: number;   // sum of balance where rate exists
+      pmt: number;
+      tracks: Array<{ name: string; balance: number; rate: number | null; pmt: number; loanId: string }>;
+      missingRateBalance: number;
+    }> = {};
+    tracksEnriched.forEach(t => {
+      const cat = t._category;
+      if (!groups[cat]) {
+        groups[cat] = {
+          label: CAT_LABEL[cat] || "אחר",
+          balance: 0, weightedRateNum: 0, weightedRateDen: 0, pmt: 0,
+          tracks: [], missingRateBalance: 0,
+        };
+      }
+      const g = groups[cat];
+      g.balance += t._balance;
+      g.pmt += t._pmt;
+      if (t._rate != null) {
+        g.weightedRateNum += t._rate * t._balance;
+        g.weightedRateDen += t._balance;
+      } else {
+        g.missingRateBalance += t._balance;
+      }
+      g.tracks.push({
+        name: t.track_name || `מסלול`,
+        balance: t._balance,
+        rate: t._rate,
+        pmt: t._pmt,
+        loanId: t._loanId,
+      });
+    });
+    return Object.entries(groups)
+      .map(([cat, g]) => ({
+        category: cat,
+        label: g.label,
+        balance: g.balance,
+        avgRate: g.weightedRateDen > 0 ? g.weightedRateNum / g.weightedRateDen : null,
+        marketRate: cat === "prime" ? MARKET_DATA.primeRate
+          : cat === "variable" ? MARKET_DATA.variableAvgRate
+          : cat === "cpi" ? MARKET_DATA.fixedAvgRate
+          : MARKET_DATA.fixedAvgRate,
+        pmt: g.pmt,
+        tracks: g.tracks.sort((a, b) => b.balance - a.balance),
+        missingRateBalance: g.missingRateBalance,
+      }))
+      .sort((a, b) => b.balance - a.balance);
+  }, [tracksEnriched]);
+
+  // Sanity check: tracks missing both rate and reported PMT
+  const missingDataTracks = tracksEnriched.filter(t => !t._hasRate && !t._hasReportedPmt && t._balance > 0);
 
   // ============ Render ============
   return (
@@ -716,6 +784,94 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             </CardContent>
           </Card>
 
+          {/* ===== Rate Matrix per category ===== */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                מטריצת ריביות לפי מסלול
+                <span className="text-xs font-normal text-muted-foreground">(החזר מבוסס על נתוני ה-JSON בלבד)</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {missingDataTracks.length > 0 && (
+                <div className="mb-3 p-2 rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>
+                    {missingDataTracks.length} מסלולים חסרים גם <b>ריבית</b> וגם <b>monthly_payment</b> ב-JSON, ולכן לא נכללים בהחזר החודשי. סה"כ יתרה לא מחושבת: {fmtILS(missingDataTracks.reduce((s, t) => s + t._balance, 0))}.
+                  </span>
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-right">מסלול</TableHead>
+                      <TableHead className="text-center">סך יתרה</TableHead>
+                      <TableHead className="text-center">ריבית ממוצעת (משוקללת)</TableHead>
+                      <TableHead className="text-center">ריבית שוק להשוואה</TableHead>
+                      <TableHead className="text-center">פער</TableHead>
+                      <TableHead className="text-center">החזר חודשי</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rateMatrix.map(row => {
+                      const diff = row.avgRate != null ? row.avgRate - row.marketRate : null;
+                      return (
+                        <React.Fragment key={row.category}>
+                          <TableRow className="font-medium">
+                            <TableCell className="text-right">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[row.category as keyof typeof COLORS] }} />
+                                {row.label}
+                                <Badge variant="outline" className="text-[10px]">{row.tracks.length}</Badge>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap">{fmtILS(row.balance)}</TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              {row.avgRate != null ? fmtPct(row.avgRate) : <span className="text-muted-foreground text-xs">חסר</span>}
+                              {row.missingRateBalance > 0 && row.avgRate != null && (
+                                <div className="text-[10px] text-amber-600 dark:text-amber-400">
+                                  ל-{fmtILS(row.missingRateBalance)} חסרה ריבית
+                                </div>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap text-muted-foreground">{fmtPct(row.marketRate)}</TableCell>
+                            <TableCell className="text-center whitespace-nowrap">
+                              {diff == null ? "—" : (
+                                <Badge variant={diff < 0 ? "default" : "destructive"} className="text-[10px]">
+                                  {diff > 0 ? "+" : ""}{diff.toFixed(2)}%
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-center whitespace-nowrap font-semibold">{fmtILS(row.pmt)}</TableCell>
+                          </TableRow>
+                          {row.tracks.map((sub, i) => (
+                            <TableRow key={`${row.category}-${i}`} className="text-xs text-muted-foreground bg-muted/20">
+                              <TableCell className="text-right pr-8">↳ {sub.name} <span className="text-[10px]">(הלוואה {sub.loanId.slice(-4)})</span></TableCell>
+                              <TableCell className="text-center">{fmtILS(sub.balance)}</TableCell>
+                              <TableCell className="text-center">{sub.rate != null ? fmtPct(sub.rate) : <span className="text-amber-600 dark:text-amber-400">חסר</span>}</TableCell>
+                              <TableCell className="text-center">—</TableCell>
+                              <TableCell className="text-center">—</TableCell>
+                              <TableCell className="text-center">{sub.pmt > 0 ? fmtILS(sub.pmt) : "—"}</TableCell>
+                            </TableRow>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
+                    <TableRow className="font-bold border-t-2">
+                      <TableCell className="text-right">סה"כ</TableCell>
+                      <TableCell className="text-center">{fmtILS(rateMatrix.reduce((s, r) => s + r.balance, 0))}</TableCell>
+                      <TableCell className="text-center">—</TableCell>
+                      <TableCell className="text-center">—</TableCell>
+                      <TableCell className="text-center">—</TableCell>
+                      <TableCell className="text-center">{fmtILS(rateMatrix.reduce((s, r) => s + r.pmt, 0))}</TableCell>
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
           {/* ===== Section C: Loans Accordion ===== */}
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">פירוט הלוואות ומסלולים</CardTitle></CardHeader>
@@ -802,9 +958,9 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                       </TableCell>
                                       <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
                                       <TableCell className="text-center whitespace-nowrap">
-                                        {typeof t.interest_rate_percent === "number"
-                                          ? fmtPct(t.interest_rate_percent)
-                                          : fmtPct(t._rate)}
+                                        {t._rate != null
+                                          ? fmtPct(t._rate)
+                                          : <span className="text-muted-foreground text-xs">חסר ב-JSON</span>}
                                       </TableCell>
                                       <TableCell className="text-center whitespace-nowrap text-muted-foreground">
                                         {typeof t.comparison_interest_rate === "number" ? fmtPct(t.comparison_interest_rate) : "—"}
