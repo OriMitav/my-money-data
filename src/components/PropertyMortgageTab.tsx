@@ -624,6 +624,98 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   // Sanity check: tracks missing both rate and reported PMT
   const missingDataTracks = tracksEnriched.filter(t => !t._hasRate && !t._hasReportedPmt && t._balance > 0);
 
+  // ============ Aggregates from new JSON schema ============
+  // Sum recent_payments by month across all loans → actuals series
+  const paymentHistory = useMemo(() => {
+    if (!payload) return [] as { month: string; date: Date; amount: number }[];
+    const byMonth = new Map<string, { date: Date; amount: number }>();
+    (payload.loans || []).forEach((l: any) => {
+      (l.recent_payments || []).forEach((rp: RecentPayment) => {
+        const d = parseMonthYear(rp.month);
+        if (!d) return;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const cur = byMonth.get(key);
+        const amt = Number(rp.amount) || 0;
+        if (cur) cur.amount += amt;
+        else byMonth.set(key, { date: d, amount: amt });
+      });
+    });
+    return Array.from(byMonth.entries())
+      .map(([key, v]) => ({ month: key, date: v.date, amount: v.amount }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [payload]);
+
+  // Last actual monthly payment (sum across loans for the latest month)
+  const lastMonthlyPayment = paymentHistory.length
+    ? paymentHistory[paymentHistory.length - 1].amount
+    : 0;
+
+  // Original loan total vs current balance (with fees)
+  const originalTotals = useMemo(() => {
+    if (!payload) return { original: 0, current: 0, currentNoFees: 0, paidOff: 0, pctPaid: 0 };
+    let original = 0, current = 0, currentNoFees = 0;
+    (payload.loans || []).forEach((l: any) => {
+      original += Number(l.original_loan_amount) || 0;
+      current += Number(l.total_balance_with_fees ?? l.loan_balance_with_fees) || 0;
+      currentNoFees += Number(l.loan_balance_without_fees) || 0;
+    });
+    const paidOff = Math.max(0, original - current);
+    const pctPaid = original > 0 ? (paidOff / original) * 100 : 0;
+    return { original, current, currentNoFees, paidOff, pctPaid };
+  }, [payload]);
+
+  // Total fees & linkage = total_linkage_differences + total_early_repayment_fees + interest_for_clearance
+  const feesAndLinkage = useMemo(() => {
+    if (!payload) return { linkage: 0, prepayment: 0, clearance: 0, total: 0 };
+    let linkage = 0, prepayment = 0, clearance = 0;
+    (payload.loans || []).forEach((l: any) => {
+      linkage += Number(l.total_linkage_differences) || 0;
+      prepayment += Number(l.total_early_repayment_fees) || 0;
+      clearance += Number(l.interest_for_clearance) || 0;
+    });
+    return { linkage, prepayment, clearance, total: linkage + prepayment + clearance };
+  }, [payload]);
+
+  // Current balance breakdown for donut chart
+  const balanceBreakdownData = useMemo(() => {
+    const principal = (payload?.loans || []).reduce((s: number, l: any) => s + (Number(l.principal_balance) || 0), 0);
+    const linkage = feesAndLinkage.linkage;
+    const interestFees = feesAndLinkage.prepayment + feesAndLinkage.clearance;
+    return [
+      { name: "קרן", value: Math.max(0, principal), color: "hsl(200, 75%, 50%)" },
+      { name: "הפרשי הצמדה", value: Math.max(0, linkage), color: "hsl(280, 60%, 55%)" },
+      { name: "ריבית ועמלות", value: Math.max(0, interestFees), color: "hsl(15, 85%, 55%)" },
+    ].filter(d => d.value > 0);
+  }, [payload, feesAndLinkage]);
+
+  // Payment history (actuals from recent_payments) + 24-month forecast based on current track PMTs
+  const paymentHistoryAndForecast = useMemo(() => {
+    if (!payload) return [] as { label: string; actual?: number; forecast?: number }[];
+    const monthlyForecast = totalPMT;
+    const today = parseDate(payload.report_date) || new Date();
+    const out: { label: string; actual?: number; forecast?: number }[] = [];
+    paymentHistory.forEach(p => {
+      out.push({
+        label: `${String(p.date.getMonth() + 1).padStart(2, "0")}/${String(p.date.getFullYear()).slice(-2)}`,
+        actual: Math.round(p.amount),
+      });
+    });
+    // forecast 24 months ahead from the month after the last actual / report_date
+    const last = paymentHistory.length
+      ? new Date(paymentHistory[paymentHistory.length - 1].date)
+      : new Date(today);
+    for (let i = 1; i <= 24; i++) {
+      const d = new Date(last);
+      d.setMonth(d.getMonth() + i);
+      out.push({
+        label: `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`,
+        forecast: Math.round(monthlyForecast),
+      });
+    }
+    return out;
+  }, [payload, paymentHistory, totalPMT]);
+
+
   // ============ Render ============
   return (
     <div dir="rtl" className="space-y-4 sm:space-y-6">
