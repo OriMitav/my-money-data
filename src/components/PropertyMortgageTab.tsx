@@ -329,9 +329,10 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       .reverse()
       .map(s => {
         const d = parseDate(s.report_date) || new Date();
+        const bal = Number(s.total_balance_with_fees) || Number(s.payload?.total_mortgage_balance_with_fees) || 0;
         return {
           year: d.getFullYear() + d.getMonth() / 12,
-          balance: Number(s.total_balance_with_fees) || 0,
+          balance: bal,
           type: "history" as const,
         };
       });
