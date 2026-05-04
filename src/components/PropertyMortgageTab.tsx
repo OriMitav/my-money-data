@@ -427,7 +427,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           <h2 className="text-lg font-semibold">המשכנתא</h2>
           {latest && (
             <p className="text-xs text-muted-foreground">
-              עודכן לאחרונה: {new Date(latest.report_date).toLocaleDateString("he-IL")} • {snapshots.length} תמונות מצב
+              עודכן לאחרונה: {(parseDate(latest.report_date) || new Date()).toLocaleDateString("he-IL")} • {snapshots.length} תמונות מצב
             </p>
           )}
         </div>
