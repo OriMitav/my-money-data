@@ -252,7 +252,10 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
         const months = end ? monthsBetween(today, end) : 0;
         const rate = getRateForTrack(t);
         const balance = getTrackBalance(t);
-        const pmt = spitzerPMT(balance, rate, months);
+        // Prefer the bank-reported monthly payment when available (most accurate);
+        // fall back to Spitzer based on current balance + remaining months.
+        const reportedPmt = Number(t.monthly_payment) || 0;
+        const pmt = reportedPmt > 0 ? reportedPmt : spitzerPMT(balance, rate, months);
         out.push({
           ...t,
           _loanId: String(loan.loan_account_number || ""),
