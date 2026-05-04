@@ -363,7 +363,47 @@ export default function TransactionsPage() {
       setPendingFlagChange(null);
     }
   };
-  const filtered = useMemo(() => {
+
+  // For Whom: collect existing names from transactions + earners + rules
+  const forWhomSuggestions = useMemo(() => {
+    const set = new Set<string>();
+    transactions.forEach((t) => { if (t.for_whom) set.add(t.for_whom); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "he"));
+  }, [transactions]);
+
+  const applyForWhom = async (scope: "single" | "past" | "always") => {
+    if (!pendingForWhom) return;
+    const { tx, value } = pendingForWhom;
+    const trimmed = value.trim() || null;
+    try {
+      if (scope === "single") {
+        await supabase.from("transactions").update({ for_whom: trimmed }).eq("id", tx.id);
+      } else if (scope === "past") {
+        await supabase.from("transactions").update({ for_whom: trimmed })
+          .eq("user_id", user!.id).eq("source_recipient", tx.source_recipient!);
+      } else {
+        await supabase.from("transactions").update({ for_whom: trimmed })
+          .eq("user_id", user!.id).eq("source_recipient", tx.source_recipient!);
+        if (trimmed) {
+          await supabase.from("for_whom_rules").upsert(
+            { user_id: user!.id, source_recipient: tx.source_recipient!, for_whom: trimmed },
+            { onConflict: "user_id,source_recipient" }
+          );
+        } else {
+          await supabase.from("for_whom_rules").delete()
+            .eq("user_id", user!.id).eq("source_recipient", tx.source_recipient!);
+        }
+      }
+      toast.success("עודכן");
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "שגיאה");
+    } finally {
+      setPendingForWhom(null);
+      setForWhomEditing(null);
+    }
+  };
+
     return transactions.filter((t) => {
       if (dateFrom && t.date < format(dateFrom, "yyyy-MM-dd")) return false;
       if (dateTo && t.date > format(dateTo, "yyyy-MM-dd")) return false;
