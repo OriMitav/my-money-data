@@ -452,47 +452,55 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       ) : (
         <>
           {/* ===== Section A: KPI Cards ===== */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <KpiCard
-              icon={<Wallet className="h-4 w-4" />}
-              label="סך יתרה לסילוק"
-              value={fmtILS(latest.total_balance_with_fees)}
-              sub={`ללא קנסות: ${fmtILS(latest.total_balance_without_fees)}`}
-            />
-            <KpiCard
-              icon={<TrendingUp className="h-4 w-4" />}
-              label="החזר חודשי משוער"
-              value={fmtILS(totalPMT)}
-              sub={`${tracksEnriched.length} מסלולים פעילים`}
-            />
-            <KpiCard
-              icon={<Calendar className="h-4 w-4" />}
-              label="נקודת יציאה קרובה"
-              value={nextExit ? nextExit.toLocaleDateString("he-IL") : "—"}
-              sub={nextExit ? "תחנת יציאה משתנה" : "אין מסלולים משתנים"}
-            />
-            <KpiCard
-              icon={<Activity className="h-4 w-4" />}
-              label="חשיפה לפריים / מדד"
-              value={`${(exposure.pcts.prime || 0).toFixed(0)}% / ${(exposure.pcts.cpi || 0).toFixed(0)}%`}
-              sub={`קבועה: ${(exposure.pcts.fixed || 0).toFixed(0)}% • משתנה: ${(exposure.pcts.variable || 0).toFixed(0)}%`}
-            />
-          </div>
-
-          {/* Penalty alert */}
-          {(latest.total_balance_with_fees - latest.total_balance_without_fees) > 0 && (
-            <Card className="border-amber-500/40 bg-amber-500/5">
-              <CardContent className="p-4 flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-amber-600" />
-                <div className="text-sm">
-                  <span className="font-semibold">קנס פירעון מוקדם:</span>{" "}
-                  <span className="text-amber-700 dark:text-amber-400 font-bold">
-                    {fmtILS(latest.total_balance_with_fees - latest.total_balance_without_fees)}
-                  </span>
+          {(() => {
+            const totalWith = Number(latest.total_balance_with_fees) || Number(payload.total_mortgage_balance_with_fees) || tracksEnriched.reduce((s, t) => s + t._balance, 0);
+            const totalWithout = Number(latest.total_balance_without_fees) || Number(payload.total_mortgage_balance_without_fees) || totalWith;
+            const penalty = Math.max(0, totalWith - totalWithout);
+            return (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <KpiCard
+                    icon={<Wallet className="h-4 w-4" />}
+                    label="סך יתרה לסילוק"
+                    value={fmtILS(totalWith)}
+                    sub={`ללא קנסות: ${fmtILS(totalWithout)}`}
+                  />
+                  <KpiCard
+                    icon={<TrendingUp className="h-4 w-4" />}
+                    label="החזר חודשי משוער"
+                    value={fmtILS(totalPMT)}
+                    sub={`${tracksEnriched.length} מסלולים פעילים`}
+                  />
+                  <KpiCard
+                    icon={<Calendar className="h-4 w-4" />}
+                    label="נקודת יציאה קרובה"
+                    value={nextExit ? nextExit.toLocaleDateString("he-IL") : "—"}
+                    sub={nextExit ? "תחנת יציאה משתנה" : "אין מסלולים משתנים"}
+                  />
+                  <KpiCard
+                    icon={<Activity className="h-4 w-4" />}
+                    label="חשיפה לפריים / מדד"
+                    value={`${(exposure.pcts.prime || 0).toFixed(0)}% / ${(exposure.pcts.cpi || 0).toFixed(0)}%`}
+                    sub={`קבועה: ${(exposure.pcts.fixed || 0).toFixed(0)}% • משתנה: ${(exposure.pcts.variable || 0).toFixed(0)}%`}
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          )}
+
+                {penalty > 0 && (
+                  <Card className="border-amber-500/40 bg-amber-500/5 mt-4">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <AlertCircle className="h-5 w-5 text-amber-600" />
+                      <div className="text-sm">
+                        <span className="font-semibold">קנס פירעון מוקדם:</span>{" "}
+                        <span className="text-amber-700 dark:text-amber-400 font-bold">
+                          {fmtILS(penalty)}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            );
+          })()}
 
           {/* ===== Section A2: Refinancing & Risk ===== */}
           <Card>
