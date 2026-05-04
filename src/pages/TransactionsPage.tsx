@@ -13,10 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import { fetchAllPages } from "@/lib/fetchAllPages";
 import { format } from "date-fns";
-import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X, Upload, FileText } from "lucide-react";
+import { CalendarIcon, Pencil, ArrowLeftRight, Filter, X, Upload, FileText, UserCircle2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { UploadReportDialog } from "@/components/UploadReportDialog";
@@ -36,6 +37,7 @@ interface TransactionRow {
   subscription: boolean;
   entity_id: string;
   category_id: string | null;
+  for_whom: string | null;
   upload_id: string | null;
   financial_entities: { name: string; type: string } | null;
 }
@@ -96,7 +98,7 @@ export default function TransactionsPage() {
       return fetchAllPages<TransactionRow>(async (from, to) => {
         const { data, error } = await supabase
           .from("transactions")
-          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, category_id, upload_id, financial_entities(name, type)")
+          .select("id, date, source_recipient, value, relevant_transaction, subscription, entity_id, category_id, for_whom, upload_id, financial_entities(name, type)")
           .eq("user_id", user!.id)
           .order("date", { ascending: false })
           .range(from, to);
