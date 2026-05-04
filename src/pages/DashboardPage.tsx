@@ -21,6 +21,7 @@ import {
   BarChart, Bar, LabelList,
 } from "recharts";
 import { LayoutDashboard, Camera } from "lucide-react";
+import ExpensesByCategoryChart from "@/components/ExpensesByCategoryChart";
 import { fetchAllPages } from "@/lib/fetchAllPages";
 import { toast } from "sonner";
 
@@ -696,6 +697,9 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Expenses by Category */}
+          <ExpensesByCategoryChart />
 
           {/* Pie Charts - Row 1: Savings + Pension */}
           <div className="grid gap-4 grid-cols-1 xl:grid-cols-2">
