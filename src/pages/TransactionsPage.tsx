@@ -972,6 +972,24 @@ export default function TransactionsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* For Whom scope dialog */}
+      <Dialog open={!!pendingForWhom} onOpenChange={(v) => !v && setPendingForWhom(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>הגדרת "עבור מי"</DialogTitle>
+            <DialogDescription>
+              להחיל את הערך "{pendingForWhom?.value}" עבור הנמען "{pendingForWhom?.tx.source_recipient}"?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setPendingForWhom(null)}>ביטול</Button>
+            <Button variant="ghost" onClick={() => applyForWhom("single")}>רק לתנועה זו</Button>
+            <Button variant="secondary" onClick={() => applyForWhom("past")}>כל ההיסטוריה (אותו נמען)</Button>
+            <Button onClick={() => applyForWhom("always")}>תמיד (כולל עתיד)</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
