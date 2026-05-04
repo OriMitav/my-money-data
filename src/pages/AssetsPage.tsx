@@ -451,6 +451,10 @@ export default function AssetsPage() {
             error={activeTab === "sale" ? fetchError : null}
           />
         </TabsContent>
+
+        <TabsContent value="mortgage">
+          <PropertyMortgageTab propertyId={prop.id} />
+        </TabsContent>
       </Tabs>
 
       {/* Settings dialog */}
