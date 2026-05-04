@@ -855,7 +855,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                               <TableCell className="text-center">{sub.pmt > 0 ? fmtILS(sub.pmt) : "—"}</TableCell>
                             </TableRow>
                           ))}
-                        </>
+                        </React.Fragment>
                       );
                     })}
                     <TableRow className="font-bold border-t-2">
