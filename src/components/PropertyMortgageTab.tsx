@@ -174,12 +174,31 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   const insertMutation = useMutation({
     mutationFn: async (payload: MortgagePayload) => {
+      // Normalize report_date to ISO yyyy-mm-dd for DB storage
+      const reportDateObj = parseDate(payload.report_date) || new Date();
+      const isoDate = reportDateObj.toISOString().slice(0, 10);
+      // Compute totals as fallback if missing/0
+      let totalWith = Number(payload.total_mortgage_balance_with_fees) || 0;
+      let totalWithout = Number(payload.total_mortgage_balance_without_fees) || 0;
+      if (!totalWith || !totalWithout) {
+        let sw = 0, swo = 0;
+        for (const loan of payload.loans || []) {
+          sw += Number(loan.loan_balance_with_fees) || 0;
+          swo += Number(loan.loan_balance_without_fees) || 0;
+          for (const t of loan.tracks || []) {
+            if (!loan.loan_balance_with_fees) sw += getTrackBalance(t);
+            if (!loan.loan_balance_without_fees) swo += Number(t.track_balance_without_fees ?? t.balance ?? 0);
+          }
+        }
+        totalWith = totalWith || sw;
+        totalWithout = totalWithout || swo;
+      }
       const { error } = await supabase.from("mortgage_snapshots").insert({
         user_id: user!.id,
         property_id: propertyId,
-        report_date: payload.report_date,
-        total_balance_without_fees: payload.total_mortgage_balance_without_fees,
-        total_balance_with_fees: payload.total_mortgage_balance_with_fees,
+        report_date: isoDate,
+        total_balance_without_fees: totalWithout,
+        total_balance_with_fees: totalWith,
         payload: payload as any,
       });
       if (error) throw error;
@@ -216,10 +235,6 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       toast.error("ה-JSON חייב לכלול report_date ומערך loans");
       return;
     }
-    if (typeof parsed.total_mortgage_balance_with_fees !== "number") {
-      toast.error("חסר השדה total_mortgage_balance_with_fees");
-      return;
-    }
     insertMutation.mutate(parsed);
   };
 
@@ -228,23 +243,25 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   // ============ Derived calculations ============
   const tracksEnriched = useMemo(() => {
-    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _pmt: number; _months: number; _rate: number; _category: string }>;
-    const today = new Date(payload.report_date || new Date());
+    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _loanType: string; _pmt: number; _months: number; _rate: number; _category: string; _balance: number }>;
+    const today = parseDate(payload.report_date) || new Date();
     const out: any[] = [];
     for (const loan of payload.loans || []) {
       for (const t of loan.tracks || []) {
-        const end = t.end_date ? new Date(t.end_date) : null;
+        const end = parseDate(t.end_date);
         const months = end ? monthsBetween(today, end) : 0;
         const rate = getRateForTrack(t);
-        const balance = t.balance_with_fees ?? t.balance ?? 0;
+        const balance = getTrackBalance(t);
         const pmt = spitzerPMT(balance, rate, months);
         out.push({
           ...t,
           _loanId: String(loan.loan_account_number || ""),
+          _loanType: loan.loan_type || "",
           _pmt: pmt,
           _months: months,
           _rate: rate,
           _category: classifyTrack(t),
+          _balance: balance,
         });
       }
     }
