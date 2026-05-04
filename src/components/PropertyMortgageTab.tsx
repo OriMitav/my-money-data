@@ -669,7 +669,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
               <Accordion type="multiple" className="w-full">
                 {(payload.loans || []).map((loan, idx) => {
                   const loanTracks = tracksEnriched.filter(t => t._loanId === String(loan.loan_account_number || ""));
-                  const totBal = loanTracks.reduce((s, t) => s + (t.balance_with_fees ?? t.balance ?? 0), 0);
+                  const totBal = loanTracks.reduce((s, t) => s + (t._balance || 0), 0);
                   const totPMT = loanTracks.reduce((s, t) => s + t._pmt, 0);
                   return (
                     <AccordionItem key={idx} value={`loan-${idx}`}>
