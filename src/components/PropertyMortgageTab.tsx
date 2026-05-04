@@ -675,17 +675,40 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">צפי החזר חודשי לאורך השנים</CardTitle></CardHeader>
             <CardContent>
-              <div className="h-72">
+              <div className="h-80">
                 <ResponsiveContainer>
-                  <BarChart data={paymentTimeline.rows}>
+                  <BarChart data={paymentTimeline.rows} margin={{ top: 24, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="year" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
-                    <RTooltip formatter={(v: number) => fmtILS(Number(v))} />
+                    <RTooltip
+                      formatter={(v: number, name: string) => [fmtILS(Number(v)), name]}
+                      labelFormatter={(label, payload: any[]) => {
+                        const total = payload?.[0]?.payload?.total;
+                        return `${label} • סה"כ ${fmtILS(Number(total) || 0)}`;
+                      }}
+                    />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     {paymentTimeline.keys.map((k, i) => {
-                      const palette = ["hsl(200,75%,50%)", "hsl(15,85%,55%)", "hsl(280,60%,55%)", "hsl(35,90%,55%)", "hsl(150,60%,45%)", "hsl(340,70%,55%)"];
-                      return <Bar key={k} dataKey={k} stackId="pmt" fill={palette[i % palette.length]} />;
+                      const colorMap: Record<string, string> = {
+                        "ריבית פריים": "hsl(15, 85%, 55%)",
+                        "ריבית קבועה": "hsl(200, 75%, 50%)",
+                        "ריבית משתנה": "hsl(35, 90%, 55%)",
+                        "צמוד מדד": "hsl(280, 60%, 55%)",
+                      };
+                      const isLast = i === paymentTimeline.keys.length - 1;
+                      return (
+                        <Bar key={k} dataKey={k} stackId="pmt" fill={colorMap[k] || "hsl(150,60%,45%)"}>
+                          {isLast && (
+                            <LabelList
+                              dataKey="total"
+                              position="top"
+                              formatter={(v: number) => (v ? fmtNum(Number(v)) : "")}
+                              style={{ fontSize: 10, fill: "hsl(var(--foreground))", fontWeight: 600 }}
+                            />
+                          )}
+                        </Bar>
+                      );
                     })}
                   </BarChart>
                 </ResponsiveContainer>
