@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, BarChart, Bar
+  PieChart, Pie, Cell, Legend, BarChart, Bar, LabelList
 } from "recharts";
 import {
   Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity,
@@ -252,7 +252,10 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
         const months = end ? monthsBetween(today, end) : 0;
         const rate = getRateForTrack(t);
         const balance = getTrackBalance(t);
-        const pmt = spitzerPMT(balance, rate, months);
+        // Prefer the bank-reported monthly payment when available (most accurate);
+        // fall back to Spitzer based on current balance + remaining months.
+        const reportedPmt = Number(t.monthly_payment) || 0;
+        const pmt = reportedPmt > 0 ? reportedPmt : spitzerPMT(balance, rate, months);
         out.push({
           ...t,
           _loanId: String(loan.loan_account_number || ""),
@@ -378,30 +381,49 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return [...hist, ...forecast];
   }, [payload, snapshots, tracksEnriched]);
 
-  // Stacked monthly payment over years (per track)
+  // Stacked monthly payment over years — grouped by category (פריים, קבועה, משתנה, צמוד מדד)
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
     const today = parseDate(payload.report_date) || new Date();
     const horizon = 2055;
+    const CAT_LABEL: Record<string, string> = {
+      prime: "ריבית פריים",
+      fixed: "ריבית קבועה",
+      variable: "ריבית משתנה",
+      cpi: "צמוד מדד",
+    };
+    // Determine which categories are actually present (preserve a stable order)
+    const presentSet = new Set<string>();
+    tracksEnriched.forEach(t => presentSet.add(t._category));
+    const order = ["prime", "fixed", "variable", "cpi"].filter(c => presentSet.has(c));
+    const keys = order.map(c => CAT_LABEL[c]);
+
     const rows: Record<number, any> = {};
-    const keys: string[] = [];
-    // Bucket tracks by friendly name to keep legend short
-    tracksEnriched.forEach((t, i) => {
-      const baseName = t.track_name || `מסלול ${i + 1}`;
-      const key = `${baseName} #${i + 1}`;
-      keys.push(key);
+    const startY = today.getFullYear();
+    for (let y = startY; y <= horizon; y++) {
+      rows[y] = { year: y, total: 0 };
+      keys.forEach(k => { rows[y][k] = 0; });
+    }
+    tracksEnriched.forEach(t => {
       const end = parseDate(t.end_date);
-      const startY = today.getFullYear();
       const endY = end ? end.getFullYear() : startY;
-      for (let y = startY; y <= horizon; y++) {
-        if (!rows[y]) rows[y] = { year: y };
-        rows[y][key] = y <= endY ? Math.round(t._pmt) : 0;
+      const label = CAT_LABEL[t._category] || "אחר";
+      for (let y = startY; y <= Math.min(endY, horizon); y++) {
+        rows[y][label] = (rows[y][label] || 0) + (t._pmt || 0);
+        rows[y].total += (t._pmt || 0);
       }
     });
-    return {
-      rows: Object.values(rows).sort((a: any, b: any) => a.year - b.year),
-      keys,
-    };
+    // Round for display
+    const out = Object.values(rows)
+      .sort((a: any, b: any) => a.year - b.year)
+      .map((r: any) => {
+        const o: any = { year: r.year, total: Math.round(r.total) };
+        keys.forEach(k => { o[k] = Math.round(r[k] || 0); });
+        return o;
+      })
+      // Trim trailing zero years to keep chart focused
+      .filter((r: any, _i, arr) => r.total > 0 || arr[0].year === r.year);
+    return { rows: out, keys };
   }, [payload, tracksEnriched]);
 
   // ============ Track Mix donut data ============
@@ -653,17 +675,40 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-base">צפי החזר חודשי לאורך השנים</CardTitle></CardHeader>
             <CardContent>
-              <div className="h-72">
+              <div className="h-80">
                 <ResponsiveContainer>
-                  <BarChart data={paymentTimeline.rows}>
+                  <BarChart data={paymentTimeline.rows} margin={{ top: 24, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="year" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
-                    <RTooltip formatter={(v: number) => fmtILS(Number(v))} />
+                    <RTooltip
+                      formatter={(v: number, name: string) => [fmtILS(Number(v)), name]}
+                      labelFormatter={(label, payload: any[]) => {
+                        const total = payload?.[0]?.payload?.total;
+                        return `${label} • סה"כ ${fmtILS(Number(total) || 0)}`;
+                      }}
+                    />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     {paymentTimeline.keys.map((k, i) => {
-                      const palette = ["hsl(200,75%,50%)", "hsl(15,85%,55%)", "hsl(280,60%,55%)", "hsl(35,90%,55%)", "hsl(150,60%,45%)", "hsl(340,70%,55%)"];
-                      return <Bar key={k} dataKey={k} stackId="pmt" fill={palette[i % palette.length]} />;
+                      const colorMap: Record<string, string> = {
+                        "ריבית פריים": "hsl(15, 85%, 55%)",
+                        "ריבית קבועה": "hsl(200, 75%, 50%)",
+                        "ריבית משתנה": "hsl(35, 90%, 55%)",
+                        "צמוד מדד": "hsl(280, 60%, 55%)",
+                      };
+                      const isLast = i === paymentTimeline.keys.length - 1;
+                      return (
+                        <Bar key={k} dataKey={k} stackId="pmt" fill={colorMap[k] || "hsl(150,60%,45%)"}>
+                          {isLast && (
+                            <LabelList
+                              dataKey="total"
+                              position="top"
+                              formatter={(v: number) => (v ? fmtNum(Number(v)) : "")}
+                              style={{ fontSize: 10, fill: "hsl(var(--foreground))", fontWeight: 600 }}
+                            />
+                          )}
+                        </Bar>
+                      );
                     })}
                   </BarChart>
                 </ResponsiveContainer>
