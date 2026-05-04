@@ -381,30 +381,49 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return [...hist, ...forecast];
   }, [payload, snapshots, tracksEnriched]);
 
-  // Stacked monthly payment over years (per track)
+  // Stacked monthly payment over years — grouped by category (פריים, קבועה, משתנה, צמוד מדד)
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
     const today = parseDate(payload.report_date) || new Date();
     const horizon = 2055;
+    const CAT_LABEL: Record<string, string> = {
+      prime: "ריבית פריים",
+      fixed: "ריבית קבועה",
+      variable: "ריבית משתנה",
+      cpi: "צמוד מדד",
+    };
+    // Determine which categories are actually present (preserve a stable order)
+    const presentSet = new Set<string>();
+    tracksEnriched.forEach(t => presentSet.add(t._category));
+    const order = ["prime", "fixed", "variable", "cpi"].filter(c => presentSet.has(c));
+    const keys = order.map(c => CAT_LABEL[c]);
+
     const rows: Record<number, any> = {};
-    const keys: string[] = [];
-    // Bucket tracks by friendly name to keep legend short
-    tracksEnriched.forEach((t, i) => {
-      const baseName = t.track_name || `מסלול ${i + 1}`;
-      const key = `${baseName} #${i + 1}`;
-      keys.push(key);
+    const startY = today.getFullYear();
+    for (let y = startY; y <= horizon; y++) {
+      rows[y] = { year: y, total: 0 };
+      keys.forEach(k => { rows[y][k] = 0; });
+    }
+    tracksEnriched.forEach(t => {
       const end = parseDate(t.end_date);
-      const startY = today.getFullYear();
       const endY = end ? end.getFullYear() : startY;
-      for (let y = startY; y <= horizon; y++) {
-        if (!rows[y]) rows[y] = { year: y };
-        rows[y][key] = y <= endY ? Math.round(t._pmt) : 0;
+      const label = CAT_LABEL[t._category] || "אחר";
+      for (let y = startY; y <= Math.min(endY, horizon); y++) {
+        rows[y][label] = (rows[y][label] || 0) + (t._pmt || 0);
+        rows[y].total += (t._pmt || 0);
       }
     });
-    return {
-      rows: Object.values(rows).sort((a: any, b: any) => a.year - b.year),
-      keys,
-    };
+    // Round for display
+    const out = Object.values(rows)
+      .sort((a: any, b: any) => a.year - b.year)
+      .map((r: any) => {
+        const o: any = { year: r.year, total: Math.round(r.total) };
+        keys.forEach(k => { o[k] = Math.round(r[k] || 0); });
+        return o;
+      })
+      // Trim trailing zero years to keep chart focused
+      .filter((r: any, _i, arr) => r.total > 0 || arr[0].year === r.year);
+    return { rows: out, keys };
   }, [payload, tracksEnriched]);
 
   // ============ Track Mix donut data ============
