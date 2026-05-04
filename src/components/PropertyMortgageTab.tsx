@@ -16,7 +16,7 @@ import {
 } from "recharts";
 import {
   Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity,
-  TrendingDown, Flame, Info, AlertTriangle
+  TrendingDown, Flame, Info, AlertTriangle, ChevronDown, ChevronLeft
 } from "lucide-react";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
@@ -266,6 +266,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   const qc = useQueryClient();
   const [openDialog, setOpenDialog] = useState(false);
   const [jsonText, setJsonText] = useState("");
+  const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
 
   const { data: snapshots = [], isLoading } = useQuery({
     queryKey: ["mortgage_snapshots", propertyId],
