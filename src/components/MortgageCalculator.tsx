@@ -84,15 +84,15 @@ function isLinked(type: TrackType): boolean {
 // ===== Amortization =====
 interface MonthRow { month: number; payment: number; principal: number; interest: number; balance: number; }
 
-function amortize(track: Track): MonthRow[] {
+function amortize(track: Track, amount: number): MonthRow[] {
   const rows: MonthRow[] = [];
   const r = track.rate / 100 / 12;
   const n = track.months;
-  let balance = track.amount;
-  if (n <= 0 || track.amount <= 0) return rows;
+  let balance = amount;
+  if (n <= 0 || amount <= 0) return rows;
 
   if (track.schedule === "שפיצר") {
-    const pmt = r === 0 ? track.amount / n : (track.amount * r) / (1 - Math.pow(1 + r, -n));
+    const pmt = r === 0 ? amount / n : (amount * r) / (1 - Math.pow(1 + r, -n));
     for (let i = 1; i <= n; i++) {
       const interest = balance * r;
       const principal = pmt - interest;
@@ -100,7 +100,7 @@ function amortize(track: Track): MonthRow[] {
       rows.push({ month: i, payment: pmt, principal, interest, balance });
     }
   } else {
-    const principal = track.amount / n;
+    const principal = amount / n;
     for (let i = 1; i <= n; i++) {
       const interest = balance * r;
       const payment = principal + interest;
@@ -108,7 +108,6 @@ function amortize(track: Track): MonthRow[] {
       rows.push({ month: i, payment, principal, interest, balance });
     }
   }
-  // Apply CPI inflation to linked tracks (balance grows monthly by cpi)
   if (isLinked(track.type)) {
     const monthlyCpi = MARKET_DATA.cpiAnnual / 100 / 12;
     let infFactor = 1;
@@ -124,7 +123,7 @@ function amortize(track: Track): MonthRow[] {
 }
 
 function emptyTrack(): Track {
-  return { id: uid(), type: "פריים", schedule: "שפיצר", amount: 0, months: 240, rate: defaultRateFor("פריים") };
+  return { id: uid(), type: "פריים", schedule: "שפיצר", pct: 0, months: 240, rate: defaultRateFor("פריים") };
 }
 
 function defaultMix(name: string): Mix {
