@@ -23,14 +23,14 @@ export const MARKET_DATA = {
   cpiAnnual: 2.8,      // מדד שנתי משוער
 };
 
-type TrackType = "פריים" | 'קל"צ' | 'ק"צ' | 'מל"צ' | 'מ"צ';
+type TrackType = "פריים" | "קבועה לא צמודה" | "קבועה צמודה" | "משתנה לא צמודה" | "משתנה צמודה";
 type Schedule = "שפיצר" | "קרן שווה";
 
 interface Track {
   id: string;
   type: TrackType;
   schedule: Schedule;
-  amount: number;
+  pct: number; // percent of total mortgage
   months: number;
   rate: number; // annual %
 }
@@ -41,39 +41,58 @@ interface Mix {
   tracks: Track[];
 }
 
-const TRACK_TYPES: TrackType[] = ["פריים", 'קל"צ', 'ק"צ', 'מל"צ', 'מ"צ'];
+const TRACK_TYPES: TrackType[] = ["פריים", "קבועה לא צמודה", "קבועה צמודה", "משתנה לא צמודה", "משתנה צמודה"];
 const SCHEDULES: Schedule[] = ["שפיצר", "קרן שווה"];
 const TRACK_COLORS = ["hsl(var(--primary))", "hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)", "hsl(280 65% 60%)", "hsl(346 87% 53%)"];
 
 const fmt = (n: number) => Math.round(n).toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
+const fmtNum = (n: number) => Math.round(n).toLocaleString("en-US");
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+// Number input with thousands separators
+function NumberInput({ value, onChange, className, placeholder }: { value: number; onChange: (n: number) => void; className?: string; placeholder?: string }) {
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      dir="ltr"
+      className={className}
+      placeholder={placeholder}
+      value={value ? fmtNum(value) : ""}
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d]/g, "");
+        onChange(raw ? Number(raw) : 0);
+      }}
+    />
+  );
+}
 
 function defaultRateFor(type: TrackType): number {
   switch (type) {
     case "פריים": return MARKET_DATA.primeRate - 0.5;
-    case 'קל"צ': return 4.8;
-    case 'ק"צ': return 3.6;
-    case 'מל"צ': return 4.5;
-    case 'מ"צ': return 3.8;
+    case "קבועה לא צמודה": return 4.8;
+    case "קבועה צמודה": return 3.6;
+    case "משתנה לא צמודה": return 4.5;
+    case "משתנה צמודה": return 3.8;
   }
 }
 
 function isLinked(type: TrackType): boolean {
-  return type === 'ק"צ' || type === 'מ"צ';
+  return type === "קבועה צמודה" || type === "משתנה צמודה";
 }
 
 // ===== Amortization =====
 interface MonthRow { month: number; payment: number; principal: number; interest: number; balance: number; }
 
-function amortize(track: Track): MonthRow[] {
+function amortize(track: Track, amount: number): MonthRow[] {
   const rows: MonthRow[] = [];
   const r = track.rate / 100 / 12;
   const n = track.months;
-  let balance = track.amount;
-  if (n <= 0 || track.amount <= 0) return rows;
+  let balance = amount;
+  if (n <= 0 || amount <= 0) return rows;
 
   if (track.schedule === "שפיצר") {
-    const pmt = r === 0 ? track.amount / n : (track.amount * r) / (1 - Math.pow(1 + r, -n));
+    const pmt = r === 0 ? amount / n : (amount * r) / (1 - Math.pow(1 + r, -n));
     for (let i = 1; i <= n; i++) {
       const interest = balance * r;
       const principal = pmt - interest;
@@ -81,7 +100,7 @@ function amortize(track: Track): MonthRow[] {
       rows.push({ month: i, payment: pmt, principal, interest, balance });
     }
   } else {
-    const principal = track.amount / n;
+    const principal = amount / n;
     for (let i = 1; i <= n; i++) {
       const interest = balance * r;
       const payment = principal + interest;
@@ -89,7 +108,6 @@ function amortize(track: Track): MonthRow[] {
       rows.push({ month: i, payment, principal, interest, balance });
     }
   }
-  // Apply CPI inflation to linked tracks (balance grows monthly by cpi)
   if (isLinked(track.type)) {
     const monthlyCpi = MARKET_DATA.cpiAnnual / 100 / 12;
     let infFactor = 1;
@@ -105,7 +123,7 @@ function amortize(track: Track): MonthRow[] {
 }
 
 function emptyTrack(): Track {
-  return { id: uid(), type: "פריים", schedule: "שפיצר", amount: 0, months: 240, rate: defaultRateFor("פריים") };
+  return { id: uid(), type: "פריים", schedule: "שפיצר", pct: 0, months: 240, rate: defaultRateFor("פריים") };
 }
 
 function defaultMix(name: string): Mix {
@@ -148,20 +166,21 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
     tracks: m.tracks.map(t => t.id === tid ? { ...t, ...patch } : t),
   }));
 
-  const sumTracks = activeMix.tracks.reduce((s, t) => s + (t.amount || 0), 0);
-  const tracksMatch = Math.abs(sumTracks - mortgageAmount) < 1;
+  const sumPct = activeMix.tracks.reduce((s, t) => s + (t.pct || 0), 0);
+  const sumTracks = (sumPct / 100) * mortgageAmount;
+  const tracksMatch = Math.abs(sumPct - 100) < 0.01;
 
   // ===== Computed per active mix =====
   const computed = useMemo(() => {
-    return computeMix(activeMix);
-  }, [activeMix]);
+    return computeMix(activeMix, mortgageAmount);
+  }, [activeMix, mortgageAmount]);
 
   // ===== Comparison summary across mixes =====
   const comparison = useMemo(() => {
     return mixes.map(m => {
-      const c = computeMix(m);
+      const c = computeMix(m, mortgageAmount);
       const total = c.totalPayment;
-      const principal = m.tracks.reduce((s, t) => s + t.amount, 0);
+      const principal = m.tracks.reduce((s, t) => s + trackAmount(t, mortgageAmount), 0);
       return {
         id: m.id,
         name: m.name,
@@ -171,7 +190,7 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
         principal,
       };
     });
-  }, [mixes]);
+  }, [mixes, mortgageAmount]);
 
   // ===== Charts data =====
   const yearlyStacked = useMemo(() => {
@@ -199,7 +218,7 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
       let bal = 0;
       activeMix.tracks.forEach((t, i) => {
         const rows = computed.perTrack[i] || [];
-        if (m === 0) bal += t.amount;
+        if (m === 0) bal += trackAmount(t, mortgageAmount);
         else {
           const r = rows.find(rr => rr.month === m);
           if (r) bal += r.balance;
@@ -211,8 +230,8 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
   }, [activeMix, computed]);
 
   const mixPie = activeMix.tracks
-    .filter(t => t.amount > 0)
-    .map((t, i) => ({ name: t.type, value: t.amount, color: TRACK_COLORS[i % TRACK_COLORS.length] }));
+    .filter(t => trackAmount(t, mortgageAmount) > 0)
+    .map((t, i) => ({ name: t.type, value: trackAmount(t, mortgageAmount), color: TRACK_COLORS[i % TRACK_COLORS.length] }));
 
   const principalVsInterest = [
     { name: "קרן", value: Math.round(computed.totalPrincipal), color: "hsl(var(--primary))" },
@@ -269,25 +288,34 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>שווי נכס</Label>
-                    <Input type="number" value={propertyValue || ""} onChange={e => setPropertyValue(Number(e.target.value))} />
+                    <NumberInput value={propertyValue} onChange={(v) => setPropertyValue(v)} />
                   </div>
                   <div>
                     <Label>סכום משכנתא</Label>
-                    <Input type="number" value={mortgageAmount || ""} onChange={e => setMortgageAmount(Number(e.target.value))} />
+                    <NumberInput value={mortgageAmount} onChange={(v) => setMortgageAmount(v)} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>אחוז מימון</Label>
-                    <div className={`h-10 px-3 flex items-center rounded-md border text-sm font-medium ${
-                      financingPct > 75 ? "border-destructive text-destructive" : "border-input"
-                    }`}>
-                      {financingPct.toFixed(1)}%
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        dir="ltr"
+                        className={financingPct > 75 ? "border-destructive text-destructive" : ""}
+                        value={Number.isFinite(financingPct) ? financingPct.toFixed(1) : ""}
+                        onChange={(e) => {
+                          const pct = Number(e.target.value);
+                          if (!Number.isFinite(pct) || propertyValue <= 0) return;
+                          setMortgageAmount(Math.round((pct / 100) * propertyValue));
+                        }}
+                      />
                     </div>
                   </div>
                   <div>
                     <Label>הכנסה פנויה (לא חובה)</Label>
-                    <Input type="number" value={income || ""} onChange={e => setIncome(Number(e.target.value))} />
+                    <NumberInput value={income} onChange={(v) => setIncome(v)} />
                   </div>
                 </div>
               </CardContent>
@@ -325,17 +353,26 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <div>
-                        <Label className="text-xs">סכום</Label>
-                        <Input type="number" value={t.amount || ""} onChange={e => patchTrack(t.id, { amount: Number(e.target.value) })} />
+                        <Label className="text-xs">אחוז מההלוואה</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          dir="ltr"
+                          value={t.pct || ""}
+                          onChange={e => patchTrack(t.id, { pct: Number(e.target.value) })}
+                        />
+                        <span className="text-[10px] text-muted-foreground">
+                          ≈ {fmt(trackAmount(t, mortgageAmount))}
+                        </span>
                       </div>
                       <div>
                         <Label className="text-xs">תקופה (חודשים)</Label>
-                        <Input type="number" value={t.months || ""} onChange={e => patchTrack(t.id, { months: Number(e.target.value) })} />
+                        <NumberInput value={t.months} onChange={(v) => patchTrack(t.id, { months: v })} />
                         <span className="text-[10px] text-muted-foreground">{(t.months / 12).toFixed(1)} שנים</span>
                       </div>
                       <div>
                         <Label className="text-xs">ריבית %</Label>
-                        <Input type="number" step="0.01" value={t.rate || ""} onChange={e => patchTrack(t.id, { rate: Number(e.target.value) })} />
+                        <Input type="number" step="0.01" dir="ltr" value={t.rate || ""} onChange={e => patchTrack(t.id, { rate: Number(e.target.value) })} />
                       </div>
                     </div>
                     <div className="flex justify-between items-center">
@@ -356,10 +393,10 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                 }`}>
                   <div className="flex items-center gap-2 text-sm">
                     {tracksMatch ? <Check className="h-4 w-4 text-green-600" /> : <AlertCircle className="h-4 w-4 text-destructive" />}
-                    <span>סך המסלולים: {fmt(sumTracks)} / {fmt(mortgageAmount)}</span>
+                    <span>סך אחוזי המסלולים: {sumPct.toFixed(1)}% ({fmt(sumTracks)} / {fmt(mortgageAmount)})</span>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    הפרש: {fmt(mortgageAmount - sumTracks)}
+                    הפרש: {(100 - sumPct).toFixed(1)}%
                   </span>
                 </div>
               </CardContent>
@@ -472,10 +509,14 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
   );
 }
 
-function computeMix(mix: Mix) {
-  const perTrack = mix.tracks.map(amortize);
+function trackAmount(t: Track, mortgageAmount: number) {
+  return (t.pct / 100) * mortgageAmount;
+}
+
+function computeMix(mix: Mix, mortgageAmount: number) {
+  const perTrack = mix.tracks.map(t => amortize(t, trackAmount(t, mortgageAmount)));
   let initialMonthly = 0, totalPayment = 0, totalPrincipal = 0, totalInterest = 0;
-  perTrack.forEach((rows, i) => {
+  perTrack.forEach((rows) => {
     if (rows[0]) initialMonthly += rows[0].payment;
     rows.forEach(r => {
       totalPayment += r.payment;
