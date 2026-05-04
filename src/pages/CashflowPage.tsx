@@ -78,12 +78,14 @@ export default function CashflowPage() {
         <p className="text-sm text-muted-foreground">סקירה לפי הכנסות, הוצאות והוראות קבע</p>
       </div>
 
-      <Tabs defaultValue="incomes" className="w-full">
-        <TabsList className="grid grid-cols-3 w-full max-w-md">
-          <TabsTrigger value="incomes">הכנסות</TabsTrigger>
-          <TabsTrigger value="expenses">הוצאות</TabsTrigger>
-          <TabsTrigger value="standing">הוראות קבע</TabsTrigger>
-        </TabsList>
+      <Tabs dir="rtl" defaultValue="incomes" className="w-full">
+        <div className="flex justify-start">
+          <TabsList className="grid grid-cols-3 w-full max-w-md">
+            <TabsTrigger value="incomes">הכנסות</TabsTrigger>
+            <TabsTrigger value="expenses">הוצאות</TabsTrigger>
+            <TabsTrigger value="standing">הוראות קבע</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="incomes" className="space-y-4">
           <CashflowSection
