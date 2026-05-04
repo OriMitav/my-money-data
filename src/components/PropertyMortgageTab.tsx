@@ -807,9 +807,9 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                       </TableCell>
                                       <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
                                       <TableCell className="text-center whitespace-nowrap">
-                                        {typeof t.interest_rate_percent === "number"
-                                          ? fmtPct(t.interest_rate_percent)
-                                          : fmtPct(t._rate)}
+                                        {t._rate != null
+                                          ? fmtPct(t._rate)
+                                          : <span className="text-muted-foreground text-xs">חסר ב-JSON</span>}
                                       </TableCell>
                                       <TableCell className="text-center whitespace-nowrap text-muted-foreground">
                                         {typeof t.comparison_interest_rate === "number" ? fmtPct(t.comparison_interest_rate) : "—"}
