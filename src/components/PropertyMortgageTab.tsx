@@ -813,7 +813,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   <TableBody>
                     {snapshots.map(s => (
                       <TableRow key={s.id}>
-                        <TableCell>{new Date(s.report_date).toLocaleDateString("he-IL")}</TableCell>
+                        <TableCell>{(parseDate(s.report_date) || new Date()).toLocaleDateString("he-IL")}</TableCell>
                         <TableCell className="text-center">{fmtILS(s.total_balance_without_fees)}</TableCell>
                         <TableCell className="text-center">{fmtILS(s.total_balance_with_fees)}</TableCell>
                         <TableCell className="text-center">
