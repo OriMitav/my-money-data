@@ -1060,11 +1060,18 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   <TableBody>
                     {rateMatrix.map(row => {
                       const diff = row.avgRate != null ? row.avgRate - row.marketRate : null;
+                      const isOpen = !!expandedCats[row.category];
                       return (
                         <React.Fragment key={row.category}>
-                          <TableRow className="font-medium">
+                          <TableRow
+                            className="font-medium cursor-pointer hover:bg-muted/40"
+                            onClick={() => setExpandedCats(s => ({ ...s, [row.category]: !s[row.category] }))}
+                          >
                             <TableCell className="text-right">
                               <div className="flex items-center gap-2">
+                                {isOpen
+                                  ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                                  : <ChevronLeft className="h-3.5 w-3.5 text-muted-foreground" />}
                                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[row.category as keyof typeof COLORS] }} />
                                 {row.label}
                                 <Badge variant="outline" className="text-[10px]">{row.tracks.length}</Badge>
@@ -1089,7 +1096,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                             </TableCell>
                             <TableCell className="text-center whitespace-nowrap font-semibold">{fmtILS(row.pmt)}</TableCell>
                           </TableRow>
-                          {row.tracks.map((sub, i) => (
+                          {isOpen && row.tracks.map((sub, i) => (
                             <TableRow key={`${row.category}-${i}`} className="text-xs text-muted-foreground bg-muted/20">
                               <TableCell className="text-right pr-8">↳ {sub.name} <span className="text-[10px]">(הלוואה {sub.loanId.slice(-4)})</span></TableCell>
                               <TableCell className="text-center">{fmtILS(sub.balance)}</TableCell>
