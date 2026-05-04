@@ -621,7 +621,12 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                       <AccordionTrigger className="hover:no-underline">
                         <div className="flex flex-1 items-center justify-between gap-4 pl-2">
                           <div className="text-right">
-                            <div className="font-semibold">הלוואה {loan.loan_account_number}</div>
+                            <div className="font-semibold flex items-center gap-2">
+                              הלוואה {loan.loan_account_number}
+                              {loan.loan_type && (
+                                <Badge variant="secondary" className="text-[10px] font-normal">{loan.loan_type}</Badge>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground">{loan.bank || ""} • {(loan.tracks || []).length} מסלולים</div>
                           </div>
                           <div className="flex gap-4 text-sm">
