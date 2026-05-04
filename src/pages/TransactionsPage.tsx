@@ -741,6 +741,7 @@ export default function TransactionsPage() {
                     <TableHead className="text-center">נמען</TableHead>
                     <TableHead className="text-center">קטגוריה</TableHead>
                     <TableHead className="text-center whitespace-nowrap">סכום</TableHead>
+                    <TableHead className="text-center whitespace-nowrap">עבור מי</TableHead>
                     <TableHead className="text-center hidden md:table-cell whitespace-nowrap">שולם באמצעות</TableHead>
                     <TableHead className="text-center hidden lg:table-cell whitespace-nowrap">מסגרת תשלום</TableHead>
                     <TableHead className="text-center hidden sm:table-cell whitespace-nowrap">הכנסה/הוצאה</TableHead>
@@ -783,7 +784,78 @@ export default function TransactionsPage() {
                         <TableCell className={cn("text-center font-medium whitespace-nowrap", isIncome ? "text-green-600" : "text-red-500")}>
                           {t.value > 0 ? "+" : ""}{t.value.toLocaleString("he-IL", { style: "currency", currency: "ILS" })}
                         </TableCell>
-                        <TableCell className="text-center hidden md:table-cell">
+                        <TableCell className="text-center">
+                          {isIncome ? (
+                            <Popover
+                              open={forWhomEditing?.tx.id === t.id}
+                              onOpenChange={(o) => {
+                                if (o) setForWhomEditing({ tx: t, value: t.for_whom || "" });
+                                else setForWhomEditing(null);
+                              }}
+                            >
+                              <PopoverTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 text-xs gap-1 min-w-[100px]">
+                                  <UserCircle2 className="h-3.5 w-3.5" />
+                                  {t.for_whom || <span className="text-muted-foreground">בחר...</span>}
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[220px] p-0" align="center">
+                                <Command>
+                                  <CommandInput
+                                    placeholder="הקלד שם..."
+                                    value={forWhomEditing?.value || ""}
+                                    onValueChange={(v) => setForWhomEditing((prev) => prev ? { ...prev, value: v } : prev)}
+                                  />
+                                  <CommandList>
+                                    <CommandEmpty>
+                                      <div className="p-2 text-xs text-muted-foreground">הקש Enter לשמור</div>
+                                    </CommandEmpty>
+                                    <CommandGroup>
+                                      {forWhomSuggestions
+                                        .filter((s) => !forWhomEditing?.value || s.toLowerCase().includes(forWhomEditing.value.toLowerCase()))
+                                        .map((s) => (
+                                          <CommandItem
+                                            key={s}
+                                            value={s}
+                                            onSelect={() => {
+                                              if (!t.source_recipient) {
+                                                supabase.from("transactions").update({ for_whom: s }).eq("id", t.id)
+                                                  .then(() => { queryClient.invalidateQueries({ queryKey: ["transactions"] }); setForWhomEditing(null); });
+                                              } else {
+                                                setPendingForWhom({ tx: t, value: s });
+                                              }
+                                            }}
+                                          >
+                                            {s}
+                                            {t.for_whom === s && <Check className="ml-auto h-4 w-4" />}
+                                          </CommandItem>
+                                        ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                  <div className="p-2 border-t flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      className="flex-1 h-8 text-xs"
+                                      onClick={() => {
+                                        const v = forWhomEditing?.value || "";
+                                        if (!t.source_recipient) {
+                                          supabase.from("transactions").update({ for_whom: v.trim() || null }).eq("id", t.id)
+                                            .then(() => { queryClient.invalidateQueries({ queryKey: ["transactions"] }); setForWhomEditing(null); });
+                                        } else {
+                                          setPendingForWhom({ tx: t, value: v });
+                                        }
+                                      }}
+                                    >
+                                      שמור
+                                    </Button>
+                                  </div>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
                           <Badge variant="outline" className="text-xs">{paidVia}</Badge>
                         </TableCell>
                         <TableCell className="text-center hidden lg:table-cell">
