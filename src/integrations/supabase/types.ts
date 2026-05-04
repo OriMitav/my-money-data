@@ -586,6 +586,53 @@ export type Database = {
         }
         Relationships: []
       }
+      property_cashflow: {
+        Row: {
+          amount: number
+          created_at: string
+          entry_date: string
+          id: string
+          property_id: string
+          source: string
+          source_ref: string | null
+          subject: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          entry_date: string
+          id?: string
+          property_id: string
+          source?: string
+          source_ref?: string | null
+          subject: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          entry_date?: string
+          id?: string
+          property_id?: string
+          source?: string
+          source_ref?: string | null
+          subject?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "property_cashflow_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       property_snapshots: {
         Row: {
           avg_price: number
