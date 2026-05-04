@@ -192,6 +192,33 @@ export type Database = {
         }
         Relationships: []
       }
+      for_whom_rules: {
+        Row: {
+          created_at: string
+          for_whom: string
+          id: string
+          source_recipient: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          for_whom: string
+          id?: string
+          source_recipient: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          for_whom?: string
+          id?: string
+          source_recipient?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       geojson_layers: {
         Row: {
           created_at: string
@@ -776,6 +803,7 @@ export type Database = {
           created_at: string
           date: string
           entity_id: string
+          for_whom: string | null
           id: string
           raw_data: Json | null
           relevant_transaction: boolean
@@ -790,6 +818,7 @@ export type Database = {
           created_at?: string
           date: string
           entity_id: string
+          for_whom?: string | null
           id?: string
           raw_data?: Json | null
           relevant_transaction?: boolean
@@ -804,6 +833,7 @@ export type Database = {
           created_at?: string
           date?: string
           entity_id?: string
+          for_whom?: string | null
           id?: string
           raw_data?: Json | null
           relevant_transaction?: boolean
