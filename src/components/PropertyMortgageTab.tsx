@@ -1175,6 +1175,9 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   const loanTracks = tracksEnriched.filter(t => t._loanId === String(loan.loan_account_number || ""));
                   const totBal = loanTracks.reduce((s, t) => s + (t._balance || 0), 0);
                   const totPMT = loanTracks.reduce((s, t) => s + t._pmt, 0);
+                  const loanLastPmt = (loan.recent_payments || []).length > 0
+                    ? Number((loan.recent_payments as RecentPayment[])[0]?.amount) || 0
+                    : 0;
                   return (
                     <AccordionItem key={idx} value={`loan-${idx}`}>
                       <AccordionTrigger className="hover:no-underline">
@@ -1186,7 +1189,10 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                 <Badge variant="secondary" className="text-[10px] font-normal">{loan.loan_type}</Badge>
                               )}
                             </div>
-                            <div className="text-xs text-muted-foreground">{loan.bank || ""} • {(loan.tracks || []).length} מסלולים</div>
+                            <div className="text-xs text-muted-foreground">
+                              {loan.bank || ""}{loan.bank ? " • " : ""}{(loan.tracks || []).length} מסלולים
+                              {loan.start_date ? ` • התחלה: ${loan.start_date}` : ""}
+                            </div>
                           </div>
                           <div className="flex gap-4 text-sm">
                             <div className="text-left">
@@ -1194,8 +1200,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                               <div className="font-bold">{fmtILS(totBal)}</div>
                             </div>
                             <div className="text-left">
-                              <div className="text-xs text-muted-foreground">החזר/חודש</div>
-                              <div className="font-bold">{fmtILS(totPMT)}</div>
+                              <div className="text-xs text-muted-foreground">החזר אחרון</div>
+                              <div className="font-bold">{loanLastPmt > 0 ? fmtILS(loanLastPmt) : fmtILS(totPMT)}</div>
                             </div>
                           </div>
                         </div>
@@ -1207,13 +1213,10 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                               <TableHeader>
                                 <TableRow>
                                   <TableHead className="text-right whitespace-nowrap">שם מסלול</TableHead>
-                                  <TableHead className="text-center">קוד</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">סכום מקורי</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">יתרה נוכחית</TableHead>
+                                  <TableHead className="text-right whitespace-nowrap">הרכב הריבית</TableHead>
                                   <TableHead className="text-center whitespace-nowrap">תאריך סיום</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">יתרה מתואמת</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">ריבית מתואמת</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">ריבית להשוואה</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">הפרשי הצמדה</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">סך קנסות</TableHead>
                                   <TableHead className="text-center whitespace-nowrap">החזר משוער</TableHead>
                                   <TableHead className="text-center w-32">התקדמות</TableHead>
                                 </TableRow>
@@ -1226,7 +1229,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                   const totalMo = start && end ? monthsBetween(start, end) : 0;
                                   const elapsed = start ? monthsBetween(start, today) : 0;
                                   const progress = totalMo > 0 ? Math.min(100, (elapsed / totalMo) * 100) : 0;
-                                  const penalties = trackPenalties(t);
+                                  const origAmt = Number(t.original_amount ?? t.track_original_amount) || 0;
+                                  const rateStr = (t as any).annual_interest_rate_string || (t._rate != null ? fmtPct(t._rate) : "—");
                                   const hasArrears = (t.arrears_debt || 0) > 0;
                                   return (
                                     <TableRow key={i} className={hasArrears ? "bg-red-500/5" : ""}>
@@ -1246,37 +1250,13 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                           </Badge>
                                         </div>
                                       </TableCell>
-                                      <TableCell className="text-center text-xs">{t.track_code ?? "—"}</TableCell>
+                                      <TableCell className="text-center text-xs whitespace-nowrap">{origAmt > 0 ? fmtILS(origAmt) : "—"}</TableCell>
+                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
+                                      <TableCell className="text-right text-xs whitespace-nowrap max-w-[260px] truncate" title={rateStr}>
+                                        {rateStr}
+                                      </TableCell>
                                       <TableCell className="text-center text-xs whitespace-nowrap">
                                         {end ? end.toLocaleDateString("he-IL") : "—"}
-                                      </TableCell>
-                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
-                                      <TableCell className="text-center whitespace-nowrap">
-                                        {t._rate != null
-                                          ? fmtPct(t._rate)
-                                          : <span className="text-muted-foreground text-xs">חסר ב-JSON</span>}
-                                      </TableCell>
-                                      <TableCell className="text-center whitespace-nowrap text-muted-foreground">
-                                        {typeof t.comparison_interest_rate === "number" ? fmtPct(t.comparison_interest_rate) : "—"}
-                                      </TableCell>
-                                      <TableCell className={`text-center whitespace-nowrap ${(t.linkage_differences || 0) > 0 ? "text-red-600 dark:text-red-400 font-medium" : ""}`}>
-                                        {fmtILS(t.linkage_differences || 0)}
-                                      </TableCell>
-                                      <TableCell className="text-center whitespace-nowrap">
-                                        <UITooltip>
-                                          <TooltipTrigger asChild>
-                                            <span className={penalties > 0 ? "font-medium cursor-help underline decoration-dotted" : "text-muted-foreground"}>
-                                              {fmtILS(penalties)}
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            <div className="text-xs space-y-0.5">
-                                              <div>היוון: {fmtILS(t.capitalization_fee || 0)}</div>
-                                              <div>ריבית שלא חויבה: {fmtILS(t.accumulated_unbilled_interest || 0)}</div>
-                                              <div>אי-הודעה מראש: {fmtILS(t.non_advance_notice_fee || 0)}</div>
-                                            </div>
-                                          </TooltipContent>
-                                        </UITooltip>
                                       </TableCell>
                                       <TableCell className="text-center font-semibold whitespace-nowrap">{fmtILS(t._pmt)}</TableCell>
                                       <TableCell>
