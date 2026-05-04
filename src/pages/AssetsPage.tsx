@@ -18,6 +18,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import modiinPolygons from "@/assets/modiin_polygons.json";
 import MortgageCalculator from "@/components/MortgageCalculator";
+import PropertyMortgageTab from "@/components/PropertyMortgageTab";
 
 const MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
 const fmt = (n: number) => n.toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
@@ -424,6 +425,7 @@ export default function AssetsPage() {
         <TabsList className="w-full flex overflow-x-auto">
           <TabsTrigger value="rent" className="flex-1 text-xs sm:text-sm">ניתוח שכירות</TabsTrigger>
           <TabsTrigger value="sale" className="flex-1 text-xs sm:text-sm">שווי נכס</TabsTrigger>
+          <TabsTrigger value="mortgage" className="flex-1 text-xs sm:text-sm">המשכנתא</TabsTrigger>
         </TabsList>
 
         <TabsContent value="rent">
@@ -448,6 +450,10 @@ export default function AssetsPage() {
             onViewRaw={setDrawerData}
             error={activeTab === "sale" ? fetchError : null}
           />
+        </TabsContent>
+
+        <TabsContent value="mortgage">
+          <PropertyMortgageTab propertyId={prop.id} />
         </TabsContent>
       </Tabs>
 
