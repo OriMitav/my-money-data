@@ -490,10 +490,14 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
   );
 }
 
-function computeMix(mix: Mix) {
-  const perTrack = mix.tracks.map(amortize);
+function trackAmount(t: Track, mortgageAmount: number) {
+  return (t.pct / 100) * mortgageAmount;
+}
+
+function computeMix(mix: Mix, mortgageAmount: number) {
+  const perTrack = mix.tracks.map(t => amortize(t, trackAmount(t, mortgageAmount)));
   let initialMonthly = 0, totalPayment = 0, totalPrincipal = 0, totalInterest = 0;
-  perTrack.forEach((rows, i) => {
+  perTrack.forEach((rows) => {
     if (rows[0]) initialMonthly += rows[0].payment;
     rows.forEach(r => {
       totalPayment += r.payment;
