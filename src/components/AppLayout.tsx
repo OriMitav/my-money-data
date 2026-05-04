@@ -16,10 +16,12 @@ import {
   PiggyBank,
   CreditCard,
   Building2,
+  Wallet,
 } from "lucide-react";
 
 const navItems = [
   { title: "לוח בקרה", url: "/dashboard", icon: LayoutDashboard },
+  { title: "תזרים", url: "/cashflow", icon: Wallet },
   { title: "תנועות", url: "/transactions", icon: ArrowLeftRight },
   { title: "הכנסות ומיסוי", url: "/income-tax", icon: Receipt },
   { title: "פנסיה וחסכונות", url: "/pension", icon: PiggyBank },

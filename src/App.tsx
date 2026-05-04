@@ -14,6 +14,7 @@ import IncomeTaxPage from "@/pages/IncomeTaxPage";
 import PensionPage from "@/pages/PensionPage";
 import DebtsPage from "@/pages/DebtsPage";
 import AssetsPage from "@/pages/AssetsPage";
+import CashflowPage from "@/pages/CashflowPage";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +37,7 @@ function ProtectedRoutes() {
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/cashflow" element={<CashflowPage />} />
         <Route path="/uploads" element={<UploadsPage />} />
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/income-tax" element={<IncomeTaxPage />} />
