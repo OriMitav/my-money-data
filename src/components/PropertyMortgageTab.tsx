@@ -24,6 +24,7 @@ import { toast } from "sonner";
 // =================== Types ===================
 interface MortgageTrack {
   track_code?: string | number;
+  track_number?: string | number;
   track_name?: string;
   track_type?: string;
   balance?: number;
@@ -31,6 +32,11 @@ interface MortgageTrack {
   // Real schema field names from bank reports
   track_balance_without_fees?: number;
   track_balance_with_fees?: number;
+  track_balance?: number;
+  track_original_amount?: number;
+  track_end_date?: string;
+  annual_interest_rate_percent?: number;
+  annual_interest_rate_string?: string;
   interest_rate?: number;
   first_payment_date?: string;
   end_date?: string;
@@ -46,12 +52,36 @@ interface MortgageTrack {
   arrears_debt?: number | null;
 }
 
+interface RecentPayment {
+  month?: string;
+  amount?: number;
+}
+
+interface BalanceBreakdown {
+  principal_balance?: number;
+  total_linkage_differences?: number;
+  interest_for_clearance?: number;
+  total_early_repayment_fees?: number;
+}
+
 interface MortgageLoan {
   loan_account_number?: string | number;
+  loan_number?: string | number;
   bank?: string;
   loan_type?: string;
   loan_balance_without_fees?: number;
   loan_balance_with_fees?: number;
+  total_balance_with_fees?: number;
+  original_loan_amount?: number;
+  start_date?: string;
+  end_date?: string;
+  // flat (per new JSON) — also supported as nested balance_breakdown
+  principal_balance?: number;
+  total_linkage_differences?: number;
+  interest_for_clearance?: number;
+  total_early_repayment_fees?: number;
+  balance_breakdown?: BalanceBreakdown;
+  recent_payments?: RecentPayment[];
   tracks?: MortgageTrack[];
 }
 
