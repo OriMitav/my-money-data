@@ -25,28 +25,33 @@ import { toast } from "sonner";
 interface MortgageTrack {
   track_code?: string | number;
   track_name?: string;
-  track_type?: string; // "fixed" | "prime" | "variable" | "cpi"
+  track_type?: string;
   balance?: number;
   balance_with_fees?: number;
+  // Real schema field names from bank reports
+  track_balance_without_fees?: number;
+  track_balance_with_fees?: number;
   interest_rate?: number;
   first_payment_date?: string;
   end_date?: string;
   original_amount?: number;
   monthly_payment?: number;
   // Extended schema
-  interest_rate_percent?: number;
-  comparison_interest_rate?: number;
-  linkage_differences?: number;
-  capitalization_fee?: number;
-  accumulated_unbilled_interest?: number;
-  non_advance_notice_fee?: number;
-  arrears_debt?: number;
+  interest_rate_percent?: number | null;
+  comparison_interest_rate?: number | null;
+  linkage_differences?: number | null;
+  capitalization_fee?: number | null;
+  accumulated_unbilled_interest?: number | null;
+  non_advance_notice_fee?: number | null;
+  arrears_debt?: number | null;
 }
 
 interface MortgageLoan {
   loan_account_number?: string | number;
   bank?: string;
   loan_type?: string;
+  loan_balance_without_fees?: number;
+  loan_balance_with_fees?: number;
   tracks?: MortgageTrack[];
 }
 
@@ -71,23 +76,54 @@ interface MortgageSnapshot {
 const fmtNum = (n: number) =>
   (Math.round(n || 0)).toLocaleString("en-US");
 const fmtILS = (n: number) => "₪" + fmtNum(n);
-const fmtPct = (n: number) => (n || 0).toFixed(2) + "%";
+const fmtPct = (n: number | null | undefined) =>
+  (n == null ? 0 : n).toFixed(2) + "%";
+
+// Robust date parser: handles "01.04.2024", "01/04/2024", "4/5/2026", "2026-05-04"
+const parseDate = (input?: string | null): Date | null => {
+  if (!input) return null;
+  const s = String(input).trim();
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+  const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/.exec(s);
+  if (dmy) {
+    let y = +dmy[3];
+    if (y < 100) y += 2000;
+    return new Date(y, +dmy[2] - 1, +dmy[1]);
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const getTrackBalance = (t: MortgageTrack): number =>
+  Number(t.track_balance_with_fees ?? t.balance_with_fees ?? t.track_balance_without_fees ?? t.balance ?? 0);
 
 // Mock daily market data
 const MARKET_DATA = {
-  primeRate: 6.0,        // BoI prime
-  cpiAnnual: 2.8,        // CPI yearly
-  fixedAvgRate: 4.8,     // common fixed track
-  variableAvgRate: 5.2,  // variable / kalatz mishtana
+  primeRate: 6.0,
+  cpiAnnual: 2.8,
+  fixedAvgRate: 4.8,
+  variableAvgRate: 5.2,
   fetchedAt: new Date().toISOString(),
 };
 
+const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "cpi" => {
+  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.track_code || ""}`.toLowerCase();
+  if (blob.includes("prime") || blob.includes("פריים") || blob.includes("1078")) return "prime";
+  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("6085")) return "variable";
+  if (blob.includes("cpi") || blob.includes("מדד") || blob.includes("צמוד")) return "cpi";
+  return "fixed";
+};
+
 const getRateForTrack = (track: MortgageTrack): number => {
-  if (typeof track.interest_rate_percent === "number" && track.interest_rate_percent > 0) return track.interest_rate_percent;
-  if (typeof track.interest_rate === "number" && track.interest_rate > 0) return track.interest_rate;
-  const t = (track.track_type || "").toLowerCase();
-  if (t.includes("prime")) return MARKET_DATA.primeRate;
-  if (t.includes("variable") || t.includes("מש")) return MARKET_DATA.variableAvgRate;
+  const r1 = track.interest_rate_percent;
+  if (typeof r1 === "number" && r1 > 0) return r1;
+  const r2 = track.interest_rate;
+  if (typeof r2 === "number" && r2 > 0) return r2;
+  const cat = classifyTrack(track);
+  if (cat === "prime") return MARKET_DATA.primeRate;
+  if (cat === "variable") return MARKET_DATA.variableAvgRate;
+  if (cat === "cpi") return MARKET_DATA.fixedAvgRate;
   return MARKET_DATA.fixedAvgRate;
 };
 
@@ -98,16 +134,8 @@ const getMarketCompare = (t: MortgageTrack): number => {
   const cat = classifyTrack(t);
   if (cat === "prime") return MARKET_DATA.primeRate;
   if (cat === "variable") return MARKET_DATA.variableAvgRate;
-  if (cat === "cpi") return MARKET_DATA.fixedAvgRate; // approximate
+  if (cat === "cpi") return MARKET_DATA.fixedAvgRate;
   return MARKET_DATA.fixedAvgRate;
-};
-
-const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "cpi" => {
-  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.track_code || ""}`.toLowerCase();
-  if (blob.includes("prime") || blob.includes("פריים")) return "prime";
-  if (blob.includes("cpi") || blob.includes("מדד") || blob.includes("צמוד")) return "cpi";
-  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("6085")) return "variable";
-  return "fixed";
 };
 
 const monthsBetween = (from: Date, to: Date): number => {
@@ -146,12 +174,31 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   const insertMutation = useMutation({
     mutationFn: async (payload: MortgagePayload) => {
+      // Normalize report_date to ISO yyyy-mm-dd for DB storage
+      const reportDateObj = parseDate(payload.report_date) || new Date();
+      const isoDate = reportDateObj.toISOString().slice(0, 10);
+      // Compute totals as fallback if missing/0
+      let totalWith = Number(payload.total_mortgage_balance_with_fees) || 0;
+      let totalWithout = Number(payload.total_mortgage_balance_without_fees) || 0;
+      if (!totalWith || !totalWithout) {
+        let sw = 0, swo = 0;
+        for (const loan of payload.loans || []) {
+          sw += Number(loan.loan_balance_with_fees) || 0;
+          swo += Number(loan.loan_balance_without_fees) || 0;
+          for (const t of loan.tracks || []) {
+            if (!loan.loan_balance_with_fees) sw += getTrackBalance(t);
+            if (!loan.loan_balance_without_fees) swo += Number(t.track_balance_without_fees ?? t.balance ?? 0);
+          }
+        }
+        totalWith = totalWith || sw;
+        totalWithout = totalWithout || swo;
+      }
       const { error } = await supabase.from("mortgage_snapshots").insert({
         user_id: user!.id,
         property_id: propertyId,
-        report_date: payload.report_date,
-        total_balance_without_fees: payload.total_mortgage_balance_without_fees,
-        total_balance_with_fees: payload.total_mortgage_balance_with_fees,
+        report_date: isoDate,
+        total_balance_without_fees: totalWithout,
+        total_balance_with_fees: totalWith,
         payload: payload as any,
       });
       if (error) throw error;
@@ -188,10 +235,6 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       toast.error("ה-JSON חייב לכלול report_date ומערך loans");
       return;
     }
-    if (typeof parsed.total_mortgage_balance_with_fees !== "number") {
-      toast.error("חסר השדה total_mortgage_balance_with_fees");
-      return;
-    }
     insertMutation.mutate(parsed);
   };
 
@@ -200,23 +243,25 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   // ============ Derived calculations ============
   const tracksEnriched = useMemo(() => {
-    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _pmt: number; _months: number; _rate: number; _category: string }>;
-    const today = new Date(payload.report_date || new Date());
+    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _loanType: string; _pmt: number; _months: number; _rate: number; _category: string; _balance: number }>;
+    const today = parseDate(payload.report_date) || new Date();
     const out: any[] = [];
     for (const loan of payload.loans || []) {
       for (const t of loan.tracks || []) {
-        const end = t.end_date ? new Date(t.end_date) : null;
+        const end = parseDate(t.end_date);
         const months = end ? monthsBetween(today, end) : 0;
         const rate = getRateForTrack(t);
-        const balance = t.balance_with_fees ?? t.balance ?? 0;
+        const balance = getTrackBalance(t);
         const pmt = spitzerPMT(balance, rate, months);
         out.push({
           ...t,
           _loanId: String(loan.loan_account_number || ""),
+          _loanType: loan.loan_type || "",
           _pmt: pmt,
           _months: months,
           _rate: rate,
           _category: classifyTrack(t),
+          _balance: balance,
         });
       }
     }
@@ -248,7 +293,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   const exposure = useMemo(() => {
     const buckets: Record<string, number> = { prime: 0, cpi: 0, fixed: 0, variable: 0 };
     tracksEnriched.forEach(t => {
-      buckets[t._category] = (buckets[t._category] || 0) + (t.balance_with_fees ?? t.balance ?? 0);
+      buckets[t._category] = (buckets[t._category] || 0) + t._balance;
     });
     const total = Object.values(buckets).reduce((a, b) => a + b, 0) || 1;
     return {
@@ -264,9 +309,9 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     let best: Date | null = null;
     tracksEnriched.forEach(t => {
       if (t._category !== "variable") return;
-      if (!t.first_payment_date) return;
-      const start = new Date(t.first_payment_date);
-      let candidate = new Date(start);
+      const start = parseDate(t.first_payment_date);
+      if (!start) return;
+      const candidate = new Date(start);
       while (candidate <= today) {
         candidate.setFullYear(candidate.getFullYear() + 5);
       }
@@ -275,37 +320,46 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return best as Date | null;
   }, [tracksEnriched]);
 
-  // Forecast amortization: project total balance month-by-month until 2052
+  // Forecast amortization
   const amortization = useMemo(() => {
     if (!payload) return [] as { year: number; balance: number; type: "history" | "forecast" }[];
     // Historical
     const hist = [...snapshots]
       .slice()
       .reverse()
-      .map(s => ({
-        year: new Date(s.report_date).getFullYear() + new Date(s.report_date).getMonth() / 12,
-        balance: Number(s.total_balance_with_fees) || 0,
-        type: "history" as const,
-      }));
+      .map(s => {
+        const d = parseDate(s.report_date) || new Date();
+        const bal = Number(s.total_balance_with_fees) || Number(s.payload?.total_mortgage_balance_with_fees) || 0;
+        return {
+          year: d.getFullYear() + d.getMonth() / 12,
+          balance: bal,
+          type: "history" as const,
+        };
+      });
 
-    // Project forward per track
-    const today = new Date(payload.report_date);
-    const horizonEnd = new Date(2052, 11, 31);
+    const today = parseDate(payload.report_date) || new Date();
+    const horizonEnd = new Date(2055, 11, 31);
     const totalMonths = monthsBetween(today, horizonEnd);
     const trackStates = tracksEnriched.map(t => ({
-      balance: t.balance_with_fees ?? t.balance ?? 0,
+      balance: t._balance,
       rate: t._rate,
       monthsLeft: t._months,
       pmt: t._pmt,
     }));
     const forecast: { year: number; balance: number; type: "forecast" }[] = [];
+    // Always include t=0 anchor so chart starts at current balance
+    forecast.push({
+      year: today.getFullYear() + today.getMonth() / 12,
+      balance: trackStates.reduce((s, ts) => s + ts.balance, 0),
+      type: "forecast",
+    });
     for (let m = 1; m <= totalMonths; m++) {
       let totalBal = 0;
       trackStates.forEach(ts => {
         if (ts.monthsLeft > 0 && ts.balance > 0) {
           const r = (ts.rate / 100) / 12;
           const interest = ts.balance * r;
-          const principal = Math.min(ts.balance, ts.pmt - interest);
+          const principal = Math.max(0, Math.min(ts.balance, ts.pmt - interest));
           ts.balance = Math.max(0, ts.balance - principal);
           ts.monthsLeft--;
         }
@@ -327,14 +381,16 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   // Stacked monthly payment over years (per track)
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
-    const today = new Date(payload.report_date);
-    const horizon = 2052;
+    const today = parseDate(payload.report_date) || new Date();
+    const horizon = 2055;
     const rows: Record<number, any> = {};
     const keys: string[] = [];
+    // Bucket tracks by friendly name to keep legend short
     tracksEnriched.forEach((t, i) => {
-      const key = (t.track_name || `מסלול ${i + 1}`) + ` (${t._loanId})`;
+      const baseName = t.track_name || `מסלול ${i + 1}`;
+      const key = `${baseName} #${i + 1}`;
       keys.push(key);
-      const end = t.end_date ? new Date(t.end_date) : null;
+      const end = parseDate(t.end_date);
       const startY = today.getFullYear();
       const endY = end ? end.getFullYear() : startY;
       for (let y = startY; y <= horizon; y++) {
@@ -372,7 +428,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           <h2 className="text-lg font-semibold">המשכנתא</h2>
           {latest && (
             <p className="text-xs text-muted-foreground">
-              עודכן לאחרונה: {new Date(latest.report_date).toLocaleDateString("he-IL")} • {snapshots.length} תמונות מצב
+              עודכן לאחרונה: {(parseDate(latest.report_date) || new Date()).toLocaleDateString("he-IL")} • {snapshots.length} תמונות מצב
             </p>
           )}
         </div>
@@ -397,47 +453,55 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       ) : (
         <>
           {/* ===== Section A: KPI Cards ===== */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <KpiCard
-              icon={<Wallet className="h-4 w-4" />}
-              label="סך יתרה לסילוק"
-              value={fmtILS(latest.total_balance_with_fees)}
-              sub={`ללא קנסות: ${fmtILS(latest.total_balance_without_fees)}`}
-            />
-            <KpiCard
-              icon={<TrendingUp className="h-4 w-4" />}
-              label="החזר חודשי משוער"
-              value={fmtILS(totalPMT)}
-              sub={`${tracksEnriched.length} מסלולים פעילים`}
-            />
-            <KpiCard
-              icon={<Calendar className="h-4 w-4" />}
-              label="נקודת יציאה קרובה"
-              value={nextExit ? nextExit.toLocaleDateString("he-IL") : "—"}
-              sub={nextExit ? "תחנת יציאה משתנה" : "אין מסלולים משתנים"}
-            />
-            <KpiCard
-              icon={<Activity className="h-4 w-4" />}
-              label="חשיפה לפריים / מדד"
-              value={`${(exposure.pcts.prime || 0).toFixed(0)}% / ${(exposure.pcts.cpi || 0).toFixed(0)}%`}
-              sub={`קבועה: ${(exposure.pcts.fixed || 0).toFixed(0)}% • משתנה: ${(exposure.pcts.variable || 0).toFixed(0)}%`}
-            />
-          </div>
-
-          {/* Penalty alert */}
-          {(latest.total_balance_with_fees - latest.total_balance_without_fees) > 0 && (
-            <Card className="border-amber-500/40 bg-amber-500/5">
-              <CardContent className="p-4 flex items-center gap-3">
-                <AlertCircle className="h-5 w-5 text-amber-600" />
-                <div className="text-sm">
-                  <span className="font-semibold">קנס פירעון מוקדם:</span>{" "}
-                  <span className="text-amber-700 dark:text-amber-400 font-bold">
-                    {fmtILS(latest.total_balance_with_fees - latest.total_balance_without_fees)}
-                  </span>
+          {(() => {
+            const totalWith = Number(latest.total_balance_with_fees) || Number(payload.total_mortgage_balance_with_fees) || tracksEnriched.reduce((s, t) => s + t._balance, 0);
+            const totalWithout = Number(latest.total_balance_without_fees) || Number(payload.total_mortgage_balance_without_fees) || totalWith;
+            const penalty = Math.max(0, totalWith - totalWithout);
+            return (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  <KpiCard
+                    icon={<Wallet className="h-4 w-4" />}
+                    label="סך יתרה לסילוק"
+                    value={fmtILS(totalWith)}
+                    sub={`ללא קנסות: ${fmtILS(totalWithout)}`}
+                  />
+                  <KpiCard
+                    icon={<TrendingUp className="h-4 w-4" />}
+                    label="החזר חודשי משוער"
+                    value={fmtILS(totalPMT)}
+                    sub={`${tracksEnriched.length} מסלולים פעילים`}
+                  />
+                  <KpiCard
+                    icon={<Calendar className="h-4 w-4" />}
+                    label="נקודת יציאה קרובה"
+                    value={nextExit ? nextExit.toLocaleDateString("he-IL") : "—"}
+                    sub={nextExit ? "תחנת יציאה משתנה" : "אין מסלולים משתנים"}
+                  />
+                  <KpiCard
+                    icon={<Activity className="h-4 w-4" />}
+                    label="חשיפה לפריים / מדד"
+                    value={`${(exposure.pcts.prime || 0).toFixed(0)}% / ${(exposure.pcts.cpi || 0).toFixed(0)}%`}
+                    sub={`קבועה: ${(exposure.pcts.fixed || 0).toFixed(0)}% • משתנה: ${(exposure.pcts.variable || 0).toFixed(0)}%`}
+                  />
                 </div>
-              </CardContent>
-            </Card>
-          )}
+
+                {penalty > 0 && (
+                  <Card className="border-amber-500/40 bg-amber-500/5 mt-4">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <AlertCircle className="h-5 w-5 text-amber-600" />
+                      <div className="text-sm">
+                        <span className="font-semibold">קנס פירעון מוקדם:</span>{" "}
+                        <span className="text-amber-700 dark:text-amber-400 font-bold">
+                          {fmtILS(penalty)}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            );
+          })()}
 
           {/* ===== Section A2: Refinancing & Risk ===== */}
           <Card>
@@ -614,7 +678,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
               <Accordion type="multiple" className="w-full">
                 {(payload.loans || []).map((loan, idx) => {
                   const loanTracks = tracksEnriched.filter(t => t._loanId === String(loan.loan_account_number || ""));
-                  const totBal = loanTracks.reduce((s, t) => s + (t.balance_with_fees ?? t.balance ?? 0), 0);
+                  const totBal = loanTracks.reduce((s, t) => s + (t._balance || 0), 0);
                   const totPMT = loanTracks.reduce((s, t) => s + t._pmt, 0);
                   return (
                     <AccordionItem key={idx} value={`loan-${idx}`}>
@@ -661,8 +725,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                               </TableHeader>
                               <TableBody>
                                 {loanTracks.map((t, i) => {
-                                  const start = t.first_payment_date ? new Date(t.first_payment_date) : null;
-                                  const end = t.end_date ? new Date(t.end_date) : null;
+                                  const start = parseDate(t.first_payment_date);
+                                  const end = parseDate(t.end_date);
                                   const today = new Date();
                                   const totalMo = start && end ? monthsBetween(start, end) : 0;
                                   const elapsed = start ? monthsBetween(start, today) : 0;
@@ -691,7 +755,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                       <TableCell className="text-center text-xs whitespace-nowrap">
                                         {end ? end.toLocaleDateString("he-IL") : "—"}
                                       </TableCell>
-                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t.balance_with_fees ?? t.balance ?? 0)}</TableCell>
+                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
                                       <TableCell className="text-center whitespace-nowrap">
                                         {typeof t.interest_rate_percent === "number"
                                           ? fmtPct(t.interest_rate_percent)
@@ -756,18 +820,22 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {snapshots.map(s => (
-                      <TableRow key={s.id}>
-                        <TableCell>{new Date(s.report_date).toLocaleDateString("he-IL")}</TableCell>
-                        <TableCell className="text-center">{fmtILS(s.total_balance_without_fees)}</TableCell>
-                        <TableCell className="text-center">{fmtILS(s.total_balance_with_fees)}</TableCell>
-                        <TableCell className="text-center">
-                          <Button size="icon" variant="ghost" onClick={() => { if (confirm("למחוק את התמונה?")) deleteMutation.mutate(s.id); }}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {snapshots.map(s => {
+                      const w = Number(s.total_balance_with_fees) || Number(s.payload?.total_mortgage_balance_with_fees) || 0;
+                      const wo = Number(s.total_balance_without_fees) || Number(s.payload?.total_mortgage_balance_without_fees) || 0;
+                      return (
+                        <TableRow key={s.id}>
+                          <TableCell>{(parseDate(s.report_date) || new Date()).toLocaleDateString("he-IL")}</TableCell>
+                          <TableCell className="text-center">{fmtILS(wo)}</TableCell>
+                          <TableCell className="text-center">{fmtILS(w)}</TableCell>
+                          <TableCell className="text-center">
+                            <Button size="icon" variant="ghost" onClick={() => { if (confirm("למחוק את התמונה?")) deleteMutation.mutate(s.id); }}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -782,7 +850,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           <DialogHeader>
             <DialogTitle>עדכון נתוני משכנתא</DialogTitle>
             <DialogDescription>
-              הדבק את נתוני המשכנתא בפורמט JSON. נדרש: report_date, total_mortgage_balance_without_fees, total_mortgage_balance_with_fees, loans[]
+              הדבק נתוני משכנתא בפורמט JSON. תאריכים נתמכים: dd.mm.yyyy, dd/mm/yyyy או yyyy-mm-dd. אם הסכומים הכוללים חסרים — יחושבו אוטומטית מהמסלולים.
             </DialogDescription>
           </DialogHeader>
           <Textarea
