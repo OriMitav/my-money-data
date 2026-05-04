@@ -25,28 +25,33 @@ import { toast } from "sonner";
 interface MortgageTrack {
   track_code?: string | number;
   track_name?: string;
-  track_type?: string; // "fixed" | "prime" | "variable" | "cpi"
+  track_type?: string;
   balance?: number;
   balance_with_fees?: number;
+  // Real schema field names from bank reports
+  track_balance_without_fees?: number;
+  track_balance_with_fees?: number;
   interest_rate?: number;
   first_payment_date?: string;
   end_date?: string;
   original_amount?: number;
   monthly_payment?: number;
   // Extended schema
-  interest_rate_percent?: number;
-  comparison_interest_rate?: number;
-  linkage_differences?: number;
-  capitalization_fee?: number;
-  accumulated_unbilled_interest?: number;
-  non_advance_notice_fee?: number;
-  arrears_debt?: number;
+  interest_rate_percent?: number | null;
+  comparison_interest_rate?: number | null;
+  linkage_differences?: number | null;
+  capitalization_fee?: number | null;
+  accumulated_unbilled_interest?: number | null;
+  non_advance_notice_fee?: number | null;
+  arrears_debt?: number | null;
 }
 
 interface MortgageLoan {
   loan_account_number?: string | number;
   bank?: string;
   loan_type?: string;
+  loan_balance_without_fees?: number;
+  loan_balance_with_fees?: number;
   tracks?: MortgageTrack[];
 }
 
