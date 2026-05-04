@@ -73,6 +73,7 @@ export default function AssetsPage() {
   const qc = useQueryClient();
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showMortgageCalc, setShowMortgageCalc] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [drawerData, setDrawerData] = useState<any[] | null>(null);
   const [fetchingType, setFetchingType] = useState<string | null>(null);
