@@ -24,6 +24,7 @@ import { toast } from "sonner";
 // =================== Types ===================
 interface MortgageTrack {
   track_code?: string | number;
+  track_number?: string | number;
   track_name?: string;
   track_type?: string;
   balance?: number;
@@ -31,6 +32,11 @@ interface MortgageTrack {
   // Real schema field names from bank reports
   track_balance_without_fees?: number;
   track_balance_with_fees?: number;
+  track_balance?: number;
+  track_original_amount?: number;
+  track_end_date?: string;
+  annual_interest_rate_percent?: number;
+  annual_interest_rate_string?: string;
   interest_rate?: number;
   first_payment_date?: string;
   end_date?: string;
@@ -46,12 +52,36 @@ interface MortgageTrack {
   arrears_debt?: number | null;
 }
 
+interface RecentPayment {
+  month?: string;
+  amount?: number;
+}
+
+interface BalanceBreakdown {
+  principal_balance?: number;
+  total_linkage_differences?: number;
+  interest_for_clearance?: number;
+  total_early_repayment_fees?: number;
+}
+
 interface MortgageLoan {
   loan_account_number?: string | number;
+  loan_number?: string | number;
   bank?: string;
   loan_type?: string;
   loan_balance_without_fees?: number;
   loan_balance_with_fees?: number;
+  total_balance_with_fees?: number;
+  original_loan_amount?: number;
+  start_date?: string;
+  end_date?: string;
+  // flat (per new JSON) — also supported as nested balance_breakdown
+  principal_balance?: number;
+  total_linkage_differences?: number;
+  interest_for_clearance?: number;
+  total_early_repayment_fees?: number;
+  balance_breakdown?: BalanceBreakdown;
+  recent_payments?: RecentPayment[];
   tracks?: MortgageTrack[];
 }
 
@@ -96,7 +126,14 @@ const parseDate = (input?: string | null): Date | null => {
 };
 
 const getTrackBalance = (t: MortgageTrack): number =>
-  Number(t.track_balance_with_fees ?? t.balance_with_fees ?? t.track_balance_without_fees ?? t.balance ?? 0);
+  Number(
+    t.track_balance_with_fees ??
+    t.balance_with_fees ??
+    t.track_balance ??
+    t.track_balance_without_fees ??
+    t.balance ??
+    0
+  );
 
 // Mock daily market data
 const MARKET_DATA = {
@@ -108,9 +145,9 @@ const MARKET_DATA = {
 };
 
 const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "cpi" => {
-  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.track_code || ""}`.toLowerCase();
+  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.annual_interest_rate_string || ""} ${track.track_code || ""}`.toLowerCase();
   if (blob.includes("prime") || blob.includes("פריים") || blob.includes("1078")) return "prime";
-  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("6085")) return "variable";
+  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("עוגן") || blob.includes("6085")) return "variable";
   if (blob.includes("cpi") || blob.includes("מדד") || blob.includes("צמוד")) return "cpi";
   return "fixed";
 };
@@ -119,11 +156,84 @@ const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "
 // We intentionally do NOT fall back to market rates anymore — the chart and
 // PMT calculations should be based strictly on the user's bank data.
 const getRateForTrack = (track: MortgageTrack): number | null => {
+  const r0 = track.annual_interest_rate_percent;
+  if (typeof r0 === "number" && r0 >= 0) return r0;
   const r1 = track.interest_rate_percent;
   if (typeof r1 === "number" && r1 > 0) return r1;
   const r2 = track.interest_rate;
   if (typeof r2 === "number" && r2 > 0) return r2;
   return null;
+};
+
+// Normalize a loan from the new bank JSON schema into the canonical shape used
+// throughout the component. Maps loan_number→loan_account_number, flattens
+// balance_breakdown, and copies new track fields (track_balance, track_end_date,
+// annual_interest_rate_percent, track_original_amount) onto the existing keys.
+const normalizeLoan = (loan: any): MortgageLoan => {
+  const bb: BalanceBreakdown = loan.balance_breakdown || {
+    principal_balance: loan.principal_balance,
+    total_linkage_differences: loan.total_linkage_differences,
+    interest_for_clearance: loan.interest_for_clearance,
+    total_early_repayment_fees: loan.total_early_repayment_fees,
+  };
+  const totalWith = Number(loan.total_balance_with_fees ?? loan.loan_balance_with_fees) || 0;
+  const principal = Number(bb.principal_balance) || 0;
+  const linkage = Number(bb.total_linkage_differences) || 0;
+  const fees = (Number(bb.interest_for_clearance) || 0) + (Number(bb.total_early_repayment_fees) || 0);
+  const tracks: MortgageTrack[] = (loan.tracks || []).map((t: any) => ({
+    ...t,
+    track_code: t.track_code ?? t.track_number,
+    end_date: t.end_date || t.track_end_date,
+    track_balance_with_fees: t.track_balance_with_fees ?? t.track_balance,
+    balance: t.balance ?? t.track_balance,
+    original_amount: t.original_amount ?? t.track_original_amount,
+    interest_rate_percent: t.interest_rate_percent ?? t.annual_interest_rate_percent,
+  }));
+  return {
+    ...loan,
+    loan_account_number: loan.loan_account_number ?? loan.loan_number,
+    loan_balance_with_fees: loan.loan_balance_with_fees ?? totalWith,
+    loan_balance_without_fees:
+      loan.loan_balance_without_fees ?? Math.max(0, totalWith - fees),
+    balance_breakdown: bb,
+    principal_balance: principal,
+    total_linkage_differences: linkage,
+    interest_for_clearance: Number(bb.interest_for_clearance) || 0,
+    total_early_repayment_fees: Number(bb.total_early_repayment_fees) || 0,
+    recent_payments: Array.isArray(loan.recent_payments) ? loan.recent_payments : [],
+    tracks,
+  };
+};
+
+const normalizePayload = (raw: any): MortgagePayload => {
+  const loans = (raw.loans || []).map(normalizeLoan);
+  const totalWith =
+    Number(raw.total_mortgage_balance_with_fees) ||
+    loans.reduce((s, l) => s + (Number(l.loan_balance_with_fees) || 0), 0);
+  const totalWithout =
+    Number(raw.total_mortgage_balance_without_fees) ||
+    loans.reduce((s, l) => s + (Number(l.loan_balance_without_fees) || 0), 0);
+  // pick most recent report_date across loans if top-level missing
+  let reportDate: string = raw.report_date || "";
+  if (!reportDate) {
+    for (const l of loans as any[]) {
+      if (l.report_date) { reportDate = l.report_date; break; }
+    }
+  }
+  return {
+    report_date: reportDate || new Date().toISOString().slice(0, 10),
+    total_mortgage_balance_with_fees: totalWith,
+    total_mortgage_balance_without_fees: totalWithout,
+    loans,
+  };
+};
+
+// Parse "MM.YYYY" → Date (1st of month)
+const parseMonthYear = (s?: string): Date | null => {
+  if (!s) return null;
+  const m = /^(\d{1,2})[./-](\d{4})$/.exec(s.trim());
+  if (!m) return parseDate(s);
+  return new Date(+m[2], +m[1] - 1, 1);
 };
 
 const trackPenalties = (t: MortgageTrack): number =>
@@ -223,22 +333,27 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   });
 
   const handleSubmitJson = () => {
-    let parsed: MortgagePayload;
+    let parsed: any;
     try {
       parsed = JSON.parse(jsonText);
     } catch (e: any) {
       toast.error("JSON לא תקין: " + e.message);
       return;
     }
-    if (!parsed.report_date || !Array.isArray(parsed.loans)) {
-      toast.error("ה-JSON חייב לכלול report_date ומערך loans");
+    if (!Array.isArray(parsed?.loans)) {
+      toast.error("ה-JSON חייב לכלול מערך loans");
       return;
     }
-    insertMutation.mutate(parsed);
+    const normalized = normalizePayload(parsed);
+    insertMutation.mutate(normalized);
   };
 
   const latest = snapshots[0];
-  const payload = latest?.payload;
+  // Normalize on read too — supports older snapshots saved before normalization.
+  const payload: MortgagePayload | undefined = useMemo(
+    () => (latest?.payload ? normalizePayload(latest.payload) : undefined),
+    [latest]
+  );
 
   // ============ Derived calculations ============
   const tracksEnriched = useMemo(() => {
@@ -509,6 +624,98 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   // Sanity check: tracks missing both rate and reported PMT
   const missingDataTracks = tracksEnriched.filter(t => !t._hasRate && !t._hasReportedPmt && t._balance > 0);
 
+  // ============ Aggregates from new JSON schema ============
+  // Sum recent_payments by month across all loans → actuals series
+  const paymentHistory = useMemo(() => {
+    if (!payload) return [] as { month: string; date: Date; amount: number }[];
+    const byMonth = new Map<string, { date: Date; amount: number }>();
+    (payload.loans || []).forEach((l: any) => {
+      (l.recent_payments || []).forEach((rp: RecentPayment) => {
+        const d = parseMonthYear(rp.month);
+        if (!d) return;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const cur = byMonth.get(key);
+        const amt = Number(rp.amount) || 0;
+        if (cur) cur.amount += amt;
+        else byMonth.set(key, { date: d, amount: amt });
+      });
+    });
+    return Array.from(byMonth.entries())
+      .map(([key, v]) => ({ month: key, date: v.date, amount: v.amount }))
+      .sort((a, b) => a.date.getTime() - b.date.getTime());
+  }, [payload]);
+
+  // Last actual monthly payment (sum across loans for the latest month)
+  const lastMonthlyPayment = paymentHistory.length
+    ? paymentHistory[paymentHistory.length - 1].amount
+    : 0;
+
+  // Original loan total vs current balance (with fees)
+  const originalTotals = useMemo(() => {
+    if (!payload) return { original: 0, current: 0, currentNoFees: 0, paidOff: 0, pctPaid: 0 };
+    let original = 0, current = 0, currentNoFees = 0;
+    (payload.loans || []).forEach((l: any) => {
+      original += Number(l.original_loan_amount) || 0;
+      current += Number(l.total_balance_with_fees ?? l.loan_balance_with_fees) || 0;
+      currentNoFees += Number(l.loan_balance_without_fees) || 0;
+    });
+    const paidOff = Math.max(0, original - current);
+    const pctPaid = original > 0 ? (paidOff / original) * 100 : 0;
+    return { original, current, currentNoFees, paidOff, pctPaid };
+  }, [payload]);
+
+  // Total fees & linkage = total_linkage_differences + total_early_repayment_fees + interest_for_clearance
+  const feesAndLinkage = useMemo(() => {
+    if (!payload) return { linkage: 0, prepayment: 0, clearance: 0, total: 0 };
+    let linkage = 0, prepayment = 0, clearance = 0;
+    (payload.loans || []).forEach((l: any) => {
+      linkage += Number(l.total_linkage_differences) || 0;
+      prepayment += Number(l.total_early_repayment_fees) || 0;
+      clearance += Number(l.interest_for_clearance) || 0;
+    });
+    return { linkage, prepayment, clearance, total: linkage + prepayment + clearance };
+  }, [payload]);
+
+  // Current balance breakdown for donut chart
+  const balanceBreakdownData = useMemo(() => {
+    const principal = (payload?.loans || []).reduce((s: number, l: any) => s + (Number(l.principal_balance) || 0), 0);
+    const linkage = feesAndLinkage.linkage;
+    const interestFees = feesAndLinkage.prepayment + feesAndLinkage.clearance;
+    return [
+      { name: "קרן", value: Math.max(0, principal), color: "hsl(200, 75%, 50%)" },
+      { name: "הפרשי הצמדה", value: Math.max(0, linkage), color: "hsl(280, 60%, 55%)" },
+      { name: "ריבית ועמלות", value: Math.max(0, interestFees), color: "hsl(15, 85%, 55%)" },
+    ].filter(d => d.value > 0);
+  }, [payload, feesAndLinkage]);
+
+  // Payment history (actuals from recent_payments) + 24-month forecast based on current track PMTs
+  const paymentHistoryAndForecast = useMemo(() => {
+    if (!payload) return [] as { label: string; actual?: number; forecast?: number }[];
+    const monthlyForecast = totalPMT;
+    const today = parseDate(payload.report_date) || new Date();
+    const out: { label: string; actual?: number; forecast?: number }[] = [];
+    paymentHistory.forEach(p => {
+      out.push({
+        label: `${String(p.date.getMonth() + 1).padStart(2, "0")}/${String(p.date.getFullYear()).slice(-2)}`,
+        actual: Math.round(p.amount),
+      });
+    });
+    // forecast 24 months ahead from the month after the last actual / report_date
+    const last = paymentHistory.length
+      ? new Date(paymentHistory[paymentHistory.length - 1].date)
+      : new Date(today);
+    for (let i = 1; i <= 24; i++) {
+      const d = new Date(last);
+      d.setMonth(d.getMonth() + i);
+      out.push({
+        label: `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`,
+        forecast: Math.round(monthlyForecast),
+      });
+    }
+    return out;
+  }, [payload, paymentHistory, totalPMT]);
+
+
   // ============ Render ============
   return (
     <div dir="rtl" className="space-y-4 sm:space-y-6">
@@ -558,7 +765,41 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   />
                   <KpiCard
                     icon={<TrendingUp className="h-4 w-4" />}
-                    label="החזר חודשי משוער"
+                    label="החזר חודשי אחרון"
+                    value={lastMonthlyPayment > 0 ? fmtILS(lastMonthlyPayment) : "—"}
+                    sub={
+                      paymentHistory.length
+                        ? `לחודש ${String(paymentHistory[paymentHistory.length - 1].date.getMonth() + 1).padStart(2, "0")}/${paymentHistory[paymentHistory.length - 1].date.getFullYear()} • משוער: ${fmtILS(totalPMT)}`
+                        : `משוער: ${fmtILS(totalPMT)}`
+                    }
+                  />
+                  <Card>
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
+                        <Activity className="h-4 w-4" /><span>מקורי מול נוכחי</span>
+                      </div>
+                      <div className="text-lg sm:text-xl font-bold tracking-tight truncate">
+                        {fmtILS(originalTotals.current)}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                        מקורי: {fmtILS(originalTotals.original)} • שולם: {fmtILS(originalTotals.paidOff)} ({originalTotals.pctPaid.toFixed(1)}%)
+                      </div>
+                      <Progress value={originalTotals.pctPaid} className="h-1.5 mt-2" />
+                    </CardContent>
+                  </Card>
+                  <KpiCard
+                    icon={<Flame className="h-4 w-4" />}
+                    label='סה"כ עמלות והצמדה'
+                    value={fmtILS(feesAndLinkage.total)}
+                    sub={`הצמדה: ${fmtILS(feesAndLinkage.linkage)} • פירעון מוקדם: ${fmtILS(feesAndLinkage.prepayment)}`}
+                  />
+                </div>
+
+                {/* Secondary KPI row — exposure/exit metrics preserved from prior version */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-3">
+                  <KpiCard
+                    icon={<TrendingUp className="h-4 w-4" />}
+                    label="החזר חודשי משוער (לפי מסלולים)"
                     value={fmtILS(totalPMT)}
                     sub={`${tracksEnriched.length} מסלולים פעילים`}
                   />
@@ -573,6 +814,12 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     label="חשיפה לפריים / מדד"
                     value={`${(exposure.pcts.prime || 0).toFixed(0)}% / ${(exposure.pcts.cpi || 0).toFixed(0)}%`}
                     sub={`קבועה: ${(exposure.pcts.fixed || 0).toFixed(0)}% • משתנה: ${(exposure.pcts.variable || 0).toFixed(0)}%`}
+                  />
+                  <KpiCard
+                    icon={<Wallet className="h-4 w-4" />}
+                    label="מס' הלוואות פעילות"
+                    value={String((payload.loans || []).length)}
+                    sub={`סה"כ ${tracksEnriched.length} מסלולים`}
                   />
                 </div>
 
@@ -675,6 +922,53 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             </CardContent>
           </Card>
 
+
+          {/* ===== New: Payment History & Forecast + Balance Breakdown ===== */}
+          <div className="grid lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">היסטוריית תשלומים ותחזית</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  <ResponsiveContainer>
+                    <BarChart data={paymentHistoryAndForecast} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}K`} />
+                      <RTooltip formatter={(v: number, name: string) => [fmtILS(Number(v)), name === "actual" ? "בפועל" : "תחזית"]} />
+                      <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => (v === "actual" ? "בפועל" : "תחזית")} />
+                      <Bar dataKey="actual" fill="hsl(200, 75%, 50%)" name="actual" />
+                      <Bar dataKey="forecast" fill="hsl(200, 75%, 50%)" fillOpacity={0.35} name="forecast" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 text-center">עמודות מלאות = בפועל • שקופות = תחזית</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">הרכב היתרה הנוכחית</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-64">
+                  {balanceBreakdownData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-xs text-muted-foreground">אין נתוני פירוק יתרה</div>
+                  ) : (
+                    <ResponsiveContainer>
+                      <PieChart>
+                        <Pie data={balanceBreakdownData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={85} paddingAngle={2}>
+                          {balanceBreakdownData.map((entry, i) => (<Cell key={i} fill={entry.color} />))}
+                        </Pie>
+                        <RTooltip formatter={(v: number) => fmtILS(Number(v))} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
           <div className="grid lg:grid-cols-2 gap-4">
             <Card>
@@ -881,6 +1175,9 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   const loanTracks = tracksEnriched.filter(t => t._loanId === String(loan.loan_account_number || ""));
                   const totBal = loanTracks.reduce((s, t) => s + (t._balance || 0), 0);
                   const totPMT = loanTracks.reduce((s, t) => s + t._pmt, 0);
+                  const loanLastPmt = (loan.recent_payments || []).length > 0
+                    ? Number((loan.recent_payments as RecentPayment[])[0]?.amount) || 0
+                    : 0;
                   return (
                     <AccordionItem key={idx} value={`loan-${idx}`}>
                       <AccordionTrigger className="hover:no-underline">
@@ -892,7 +1189,10 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                 <Badge variant="secondary" className="text-[10px] font-normal">{loan.loan_type}</Badge>
                               )}
                             </div>
-                            <div className="text-xs text-muted-foreground">{loan.bank || ""} • {(loan.tracks || []).length} מסלולים</div>
+                            <div className="text-xs text-muted-foreground">
+                              {loan.bank || ""}{loan.bank ? " • " : ""}{(loan.tracks || []).length} מסלולים
+                              {loan.start_date ? ` • התחלה: ${loan.start_date}` : ""}
+                            </div>
                           </div>
                           <div className="flex gap-4 text-sm">
                             <div className="text-left">
@@ -900,8 +1200,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                               <div className="font-bold">{fmtILS(totBal)}</div>
                             </div>
                             <div className="text-left">
-                              <div className="text-xs text-muted-foreground">החזר/חודש</div>
-                              <div className="font-bold">{fmtILS(totPMT)}</div>
+                              <div className="text-xs text-muted-foreground">החזר אחרון</div>
+                              <div className="font-bold">{loanLastPmt > 0 ? fmtILS(loanLastPmt) : fmtILS(totPMT)}</div>
                             </div>
                           </div>
                         </div>
@@ -913,13 +1213,10 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                               <TableHeader>
                                 <TableRow>
                                   <TableHead className="text-right whitespace-nowrap">שם מסלול</TableHead>
-                                  <TableHead className="text-center">קוד</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">סכום מקורי</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">יתרה נוכחית</TableHead>
+                                  <TableHead className="text-right whitespace-nowrap">הרכב הריבית</TableHead>
                                   <TableHead className="text-center whitespace-nowrap">תאריך סיום</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">יתרה מתואמת</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">ריבית מתואמת</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">ריבית להשוואה</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">הפרשי הצמדה</TableHead>
-                                  <TableHead className="text-center whitespace-nowrap">סך קנסות</TableHead>
                                   <TableHead className="text-center whitespace-nowrap">החזר משוער</TableHead>
                                   <TableHead className="text-center w-32">התקדמות</TableHead>
                                 </TableRow>
@@ -932,7 +1229,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                   const totalMo = start && end ? monthsBetween(start, end) : 0;
                                   const elapsed = start ? monthsBetween(start, today) : 0;
                                   const progress = totalMo > 0 ? Math.min(100, (elapsed / totalMo) * 100) : 0;
-                                  const penalties = trackPenalties(t);
+                                  const origAmt = Number(t.original_amount ?? t.track_original_amount) || 0;
+                                  const rateStr = (t as any).annual_interest_rate_string || (t._rate != null ? fmtPct(t._rate) : "—");
                                   const hasArrears = (t.arrears_debt || 0) > 0;
                                   return (
                                     <TableRow key={i} className={hasArrears ? "bg-red-500/5" : ""}>
@@ -952,37 +1250,13 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                           </Badge>
                                         </div>
                                       </TableCell>
-                                      <TableCell className="text-center text-xs">{t.track_code ?? "—"}</TableCell>
+                                      <TableCell className="text-center text-xs whitespace-nowrap">{origAmt > 0 ? fmtILS(origAmt) : "—"}</TableCell>
+                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
+                                      <TableCell className="text-right text-xs whitespace-nowrap max-w-[260px] truncate" title={rateStr}>
+                                        {rateStr}
+                                      </TableCell>
                                       <TableCell className="text-center text-xs whitespace-nowrap">
                                         {end ? end.toLocaleDateString("he-IL") : "—"}
-                                      </TableCell>
-                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
-                                      <TableCell className="text-center whitespace-nowrap">
-                                        {t._rate != null
-                                          ? fmtPct(t._rate)
-                                          : <span className="text-muted-foreground text-xs">חסר ב-JSON</span>}
-                                      </TableCell>
-                                      <TableCell className="text-center whitespace-nowrap text-muted-foreground">
-                                        {typeof t.comparison_interest_rate === "number" ? fmtPct(t.comparison_interest_rate) : "—"}
-                                      </TableCell>
-                                      <TableCell className={`text-center whitespace-nowrap ${(t.linkage_differences || 0) > 0 ? "text-red-600 dark:text-red-400 font-medium" : ""}`}>
-                                        {fmtILS(t.linkage_differences || 0)}
-                                      </TableCell>
-                                      <TableCell className="text-center whitespace-nowrap">
-                                        <UITooltip>
-                                          <TooltipTrigger asChild>
-                                            <span className={penalties > 0 ? "font-medium cursor-help underline decoration-dotted" : "text-muted-foreground"}>
-                                              {fmtILS(penalties)}
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            <div className="text-xs space-y-0.5">
-                                              <div>היוון: {fmtILS(t.capitalization_fee || 0)}</div>
-                                              <div>ריבית שלא חויבה: {fmtILS(t.accumulated_unbilled_interest || 0)}</div>
-                                              <div>אי-הודעה מראש: {fmtILS(t.non_advance_notice_fee || 0)}</div>
-                                            </div>
-                                          </TooltipContent>
-                                        </UITooltip>
                                       </TableCell>
                                       <TableCell className="text-center font-semibold whitespace-nowrap">{fmtILS(t._pmt)}</TableCell>
                                       <TableCell>
