@@ -716,8 +716,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                               </TableHeader>
                               <TableBody>
                                 {loanTracks.map((t, i) => {
-                                  const start = t.first_payment_date ? new Date(t.first_payment_date) : null;
-                                  const end = t.end_date ? new Date(t.end_date) : null;
+                                  const start = parseDate(t.first_payment_date);
+                                  const end = parseDate(t.end_date);
                                   const today = new Date();
                                   const totalMo = start && end ? monthsBetween(start, end) : 0;
                                   const elapsed = start ? monthsBetween(start, today) : 0;
