@@ -817,8 +817,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     {rateMatrix.map(row => {
                       const diff = row.avgRate != null ? row.avgRate - row.marketRate : null;
                       return (
-                        <>
-                          <TableRow key={row.category} className="font-medium">
+                        <React.Fragment key={row.category}>
+                          <TableRow className="font-medium">
                             <TableCell className="text-right">
                               <div className="flex items-center gap-2">
                                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: COLORS[row.category as keyof typeof COLORS] }} />
