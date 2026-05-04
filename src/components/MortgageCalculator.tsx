@@ -288,25 +288,34 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>שווי נכס</Label>
-                    <Input type="number" value={propertyValue || ""} onChange={e => setPropertyValue(Number(e.target.value))} />
+                    <NumberInput value={propertyValue} onChange={(v) => setPropertyValue(v)} />
                   </div>
                   <div>
                     <Label>סכום משכנתא</Label>
-                    <Input type="number" value={mortgageAmount || ""} onChange={e => setMortgageAmount(Number(e.target.value))} />
+                    <NumberInput value={mortgageAmount} onChange={(v) => setMortgageAmount(v)} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>אחוז מימון</Label>
-                    <div className={`h-10 px-3 flex items-center rounded-md border text-sm font-medium ${
-                      financingPct > 75 ? "border-destructive text-destructive" : "border-input"
-                    }`}>
-                      {financingPct.toFixed(1)}%
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        dir="ltr"
+                        className={financingPct > 75 ? "border-destructive text-destructive" : ""}
+                        value={Number.isFinite(financingPct) ? financingPct.toFixed(1) : ""}
+                        onChange={(e) => {
+                          const pct = Number(e.target.value);
+                          if (!Number.isFinite(pct) || propertyValue <= 0) return;
+                          setMortgageAmount(Math.round((pct / 100) * propertyValue));
+                        }}
+                      />
                     </div>
                   </div>
                   <div>
                     <Label>הכנסה פנויה (לא חובה)</Label>
-                    <Input type="number" value={income || ""} onChange={e => setIncome(Number(e.target.value))} />
+                    <NumberInput value={income} onChange={(v) => setIncome(v)} />
                   </div>
                 </div>
               </CardContent>
