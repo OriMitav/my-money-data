@@ -182,13 +182,16 @@ export default function PropertyCashflowTab({ propertyId }: { propertyId: string
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={date}
-                    onSelect={(d) => d && setDate(d)}
-                    initialFocus
-                    className={cn("p-3 pointer-events-auto")}
-                  />
+                  <div className="min-h-[340px] min-w-[280px]">
+                    <Calendar
+                      mode="single"
+                      selected={date}
+                      onSelect={(d) => d && setDate(d)}
+                      initialFocus
+                      dir="rtl"
+                      className={cn("p-3 pointer-events-auto")}
+                    />
+                  </div>
                 </PopoverContent>
               </Popover>
             </div>
