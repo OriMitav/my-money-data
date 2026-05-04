@@ -76,23 +76,54 @@ interface MortgageSnapshot {
 const fmtNum = (n: number) =>
   (Math.round(n || 0)).toLocaleString("en-US");
 const fmtILS = (n: number) => "₪" + fmtNum(n);
-const fmtPct = (n: number) => (n || 0).toFixed(2) + "%";
+const fmtPct = (n: number | null | undefined) =>
+  (n == null ? 0 : n).toFixed(2) + "%";
+
+// Robust date parser: handles "01.04.2024", "01/04/2024", "4/5/2026", "2026-05-04"
+const parseDate = (input?: string | null): Date | null => {
+  if (!input) return null;
+  const s = String(input).trim();
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+  const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/.exec(s);
+  if (dmy) {
+    let y = +dmy[3];
+    if (y < 100) y += 2000;
+    return new Date(y, +dmy[2] - 1, +dmy[1]);
+  }
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
+const getTrackBalance = (t: MortgageTrack): number =>
+  Number(t.track_balance_with_fees ?? t.balance_with_fees ?? t.track_balance_without_fees ?? t.balance ?? 0);
 
 // Mock daily market data
 const MARKET_DATA = {
-  primeRate: 6.0,        // BoI prime
-  cpiAnnual: 2.8,        // CPI yearly
-  fixedAvgRate: 4.8,     // common fixed track
-  variableAvgRate: 5.2,  // variable / kalatz mishtana
+  primeRate: 6.0,
+  cpiAnnual: 2.8,
+  fixedAvgRate: 4.8,
+  variableAvgRate: 5.2,
   fetchedAt: new Date().toISOString(),
 };
 
+const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "cpi" => {
+  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.track_code || ""}`.toLowerCase();
+  if (blob.includes("prime") || blob.includes("פריים") || blob.includes("1078")) return "prime";
+  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("6085")) return "variable";
+  if (blob.includes("cpi") || blob.includes("מדד") || blob.includes("צמוד")) return "cpi";
+  return "fixed";
+};
+
 const getRateForTrack = (track: MortgageTrack): number => {
-  if (typeof track.interest_rate_percent === "number" && track.interest_rate_percent > 0) return track.interest_rate_percent;
-  if (typeof track.interest_rate === "number" && track.interest_rate > 0) return track.interest_rate;
-  const t = (track.track_type || "").toLowerCase();
-  if (t.includes("prime")) return MARKET_DATA.primeRate;
-  if (t.includes("variable") || t.includes("מש")) return MARKET_DATA.variableAvgRate;
+  const r1 = track.interest_rate_percent;
+  if (typeof r1 === "number" && r1 > 0) return r1;
+  const r2 = track.interest_rate;
+  if (typeof r2 === "number" && r2 > 0) return r2;
+  const cat = classifyTrack(track);
+  if (cat === "prime") return MARKET_DATA.primeRate;
+  if (cat === "variable") return MARKET_DATA.variableAvgRate;
+  if (cat === "cpi") return MARKET_DATA.fixedAvgRate;
   return MARKET_DATA.fixedAvgRate;
 };
 
@@ -103,16 +134,8 @@ const getMarketCompare = (t: MortgageTrack): number => {
   const cat = classifyTrack(t);
   if (cat === "prime") return MARKET_DATA.primeRate;
   if (cat === "variable") return MARKET_DATA.variableAvgRate;
-  if (cat === "cpi") return MARKET_DATA.fixedAvgRate; // approximate
+  if (cat === "cpi") return MARKET_DATA.fixedAvgRate;
   return MARKET_DATA.fixedAvgRate;
-};
-
-const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "cpi" => {
-  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.track_code || ""}`.toLowerCase();
-  if (blob.includes("prime") || blob.includes("פריים")) return "prime";
-  if (blob.includes("cpi") || blob.includes("מדד") || blob.includes("צמוד")) return "cpi";
-  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("6085")) return "variable";
-  return "fixed";
 };
 
 const monthsBetween = (from: Date, to: Date): number => {
