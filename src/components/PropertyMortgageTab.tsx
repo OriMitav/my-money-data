@@ -746,7 +746,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                                       <TableCell className="text-center text-xs whitespace-nowrap">
                                         {end ? end.toLocaleDateString("he-IL") : "—"}
                                       </TableCell>
-                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t.balance_with_fees ?? t.balance ?? 0)}</TableCell>
+                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t._balance)}</TableCell>
                                       <TableCell className="text-center whitespace-nowrap">
                                         {typeof t.interest_rate_percent === "number"
                                           ? fmtPct(t.interest_rate_percent)
