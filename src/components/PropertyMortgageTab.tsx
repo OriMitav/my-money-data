@@ -410,11 +410,22 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                       <RTooltip formatter={(v: number) => fmtILS(v)} labelFormatter={(v: number) => `שנה ${v.toFixed(1)}`} />
                       <Line
                         type="monotone"
-                        dataKey="balance"
+                        dataKey={(d: any) => d.type === "history" ? d.balance : null}
+                        name="היסטוריה"
                         stroke="hsl(var(--primary))"
                         strokeWidth={2}
                         dot={false}
-                        strokeDasharray={(d: any) => d?.type === "forecast" ? "4 4" : "0"}
+                        connectNulls
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey={(d: any) => d.type === "forecast" ? d.balance : null}
+                        name="תחזית"
+                        stroke="hsl(var(--primary))"
+                        strokeWidth={2}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        connectNulls
                       />
                     </LineChart>
                   </ResponsiveContainer>
