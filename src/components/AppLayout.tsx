@@ -16,7 +16,6 @@ import {
   PiggyBank,
   CreditCard,
   Building2,
-  Home,
 } from "lucide-react";
 
 const navItems = [
@@ -26,7 +25,6 @@ const navItems = [
   { title: "פנסיה וחסכונות", url: "/pension", icon: PiggyBank },
   { title: "נכסים", url: "/assets", icon: Building2 },
   { title: "חובות", url: "/debts", icon: CreditCard },
-  { title: "משכנתאות", url: "/mortgages", icon: Home },
   { title: "הגדרות", url: "/settings", icon: Settings },
 ];
 
