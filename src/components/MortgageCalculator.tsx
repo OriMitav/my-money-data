@@ -230,8 +230,8 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
   }, [activeMix, computed]);
 
   const mixPie = activeMix.tracks
-    .filter(t => t.amount > 0)
-    .map((t, i) => ({ name: t.type, value: t.amount, color: TRACK_COLORS[i % TRACK_COLORS.length] }));
+    .filter(t => trackAmount(t, mortgageAmount) > 0)
+    .map((t, i) => ({ name: t.type, value: trackAmount(t, mortgageAmount), color: TRACK_COLORS[i % TRACK_COLORS.length] }));
 
   const principalVsInterest = [
     { name: "קרן", value: Math.round(computed.totalPrincipal), color: "hsl(var(--primary))" },
