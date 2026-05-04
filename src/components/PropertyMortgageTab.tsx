@@ -15,8 +15,10 @@ import {
   PieChart, Pie, Cell, Legend, BarChart, Bar
 } from "recharts";
 import {
-  Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity
+  Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity,
+  TrendingDown, Flame, Info, AlertTriangle
 } from "lucide-react";
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 // =================== Types ===================
@@ -31,11 +33,20 @@ interface MortgageTrack {
   end_date?: string;
   original_amount?: number;
   monthly_payment?: number;
+  // Extended schema
+  interest_rate_percent?: number;
+  comparison_interest_rate?: number;
+  linkage_differences?: number;
+  capitalization_fee?: number;
+  accumulated_unbilled_interest?: number;
+  non_advance_notice_fee?: number;
+  arrears_debt?: number;
 }
 
 interface MortgageLoan {
   loan_account_number?: string | number;
   bank?: string;
+  loan_type?: string;
   tracks?: MortgageTrack[];
 }
 
@@ -72,10 +83,22 @@ const MARKET_DATA = {
 };
 
 const getRateForTrack = (track: MortgageTrack): number => {
+  if (typeof track.interest_rate_percent === "number" && track.interest_rate_percent > 0) return track.interest_rate_percent;
   if (typeof track.interest_rate === "number" && track.interest_rate > 0) return track.interest_rate;
   const t = (track.track_type || "").toLowerCase();
   if (t.includes("prime")) return MARKET_DATA.primeRate;
   if (t.includes("variable") || t.includes("מש")) return MARKET_DATA.variableAvgRate;
+  return MARKET_DATA.fixedAvgRate;
+};
+
+const trackPenalties = (t: MortgageTrack): number =>
+  (t.capitalization_fee || 0) + (t.accumulated_unbilled_interest || 0) + (t.non_advance_notice_fee || 0);
+
+const getMarketCompare = (t: MortgageTrack): number => {
+  const cat = classifyTrack(t);
+  if (cat === "prime") return MARKET_DATA.primeRate;
+  if (cat === "variable") return MARKET_DATA.variableAvgRate;
+  if (cat === "cpi") return MARKET_DATA.fixedAvgRate; // approximate
   return MARKET_DATA.fixedAvgRate;
 };
 
@@ -201,6 +224,26 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   }, [payload]);
 
   const totalPMT = tracksEnriched.reduce((s, t) => s + t._pmt, 0);
+
+  // Risk & Refinancing aggregates
+  const riskAgg = useMemo(() => {
+    let linkage = 0, capFee = 0, unbilled = 0, nonAdvance = 0, arrears = 0;
+    tracksEnriched.forEach(t => {
+      linkage += t.linkage_differences || 0;
+      capFee += t.capitalization_fee || 0;
+      unbilled += t.accumulated_unbilled_interest || 0;
+      nonAdvance += t.non_advance_notice_fee || 0;
+      arrears += t.arrears_debt || 0;
+    });
+    return {
+      linkage,
+      capFee,
+      unbilled,
+      nonAdvance,
+      arrears,
+      hiddenFees: capFee + unbilled + nonAdvance,
+    };
+  }, [tracksEnriched]);
 
   const exposure = useMemo(() => {
     const buckets: Record<string, number> = { prime: 0, cpi: 0, fixed: 0, variable: 0 };
@@ -396,7 +439,89 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             </Card>
           )}
 
-          {/* ===== Section B: Charts ===== */}
+          {/* ===== Section A2: Refinancing & Risk ===== */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Flame className="h-4 w-4 text-orange-500" />
+                מחזור וסיכונים
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Linkage Impact */}
+                <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                    <TrendingUp className="h-3.5 w-3.5 text-red-600" /> מד ההצמדה
+                  </div>
+                  <div className="text-xl font-bold text-red-600 dark:text-red-400">
+                    {fmtILS(riskAgg.linkage)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">חוב שנוסף מהצמדה למדד</div>
+                </div>
+
+                {/* Hidden Fees */}
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                    <AlertCircle className="h-3.5 w-3.5" /> קנסות ועמלות חבויות
+                  </div>
+                  <div className="text-xl font-bold">{fmtILS(riskAgg.hiddenFees)}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    היוון: {fmtILS(riskAgg.capFee)} • ריבית שלא חויבה: {fmtILS(riskAgg.unbilled)} • אי-הודעה: {fmtILS(riskAgg.nonAdvance)}
+                  </div>
+                </div>
+
+                {/* Arrears */}
+                <div className={`rounded-lg border p-3 ${riskAgg.arrears > 0 ? "border-red-600 bg-red-600/10" : "bg-muted/30"}`}>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+                    {riskAgg.arrears > 0 ? (
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-600 animate-pulse" />
+                    ) : (
+                      <Activity className="h-3.5 w-3.5" />
+                    )}
+                    חוב פיגורים
+                  </div>
+                  <div className={`text-xl font-bold ${riskAgg.arrears > 0 ? "text-red-600 dark:text-red-400" : ""}`}>
+                    {fmtILS(riskAgg.arrears)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">
+                    {riskAgg.arrears > 0 ? "דרושה התייחסות מיידית!" : "אין חוב פיגורים"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Refinance indicator per track */}
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground mb-2">אינדיקטור כדאיות מחזור (לפי מסלול)</div>
+                <div className="flex flex-wrap gap-2">
+                  {tracksEnriched.filter(t => typeof t.comparison_interest_rate === "number").length === 0 && (
+                    <span className="text-xs text-muted-foreground">אין נתוני ריבית להשוואה במסלולים</span>
+                  )}
+                  {tracksEnriched.map((t, i) => {
+                    if (typeof t.comparison_interest_rate !== "number") return null;
+                    const market = getMarketCompare(t);
+                    const diff = t.comparison_interest_rate - market;
+                    // diff > 0 → existing comparison rate is higher than current market → refinance attractive
+                    const profitable = diff > 0.3;
+                    const neutral = Math.abs(diff) <= 0.3;
+                    const variant = profitable ? "default" : neutral ? "secondary" : "outline";
+                    const Icon = profitable ? TrendingDown : neutral ? Info : TrendingUp;
+                    return (
+                      <Badge key={i} variant={variant} className="gap-1 text-[11px]">
+                        <Icon className="h-3 w-3" />
+                        {t.track_name || `מסלול ${i + 1}`}: {fmtPct(t.comparison_interest_rate)} vs שוק {fmtPct(market)}
+                        {profitable && <span className="ml-1">— מחזור משתלם</span>}
+                        {neutral && <span className="ml-1">— ניטרלי</span>}
+                        {!profitable && !neutral && <span className="ml-1">— לא משתלם</span>}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+
           <div className="grid lg:grid-cols-2 gap-4">
             <Card>
               <CardHeader className="pb-2"><CardTitle className="text-base">התפלגות חוב ותחזית סילוק</CardTitle></CardHeader>
@@ -496,7 +621,12 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                       <AccordionTrigger className="hover:no-underline">
                         <div className="flex flex-1 items-center justify-between gap-4 pl-2">
                           <div className="text-right">
-                            <div className="font-semibold">הלוואה {loan.loan_account_number}</div>
+                            <div className="font-semibold flex items-center gap-2">
+                              הלוואה {loan.loan_account_number}
+                              {loan.loan_type && (
+                                <Badge variant="secondary" className="text-[10px] font-normal">{loan.loan_type}</Badge>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground">{loan.bank || ""} • {(loan.tracks || []).length} מסלולים</div>
                           </div>
                           <div className="flex gap-4 text-sm">
@@ -512,54 +642,97 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
-                        <div className="overflow-x-auto">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead className="text-right">שם מסלול</TableHead>
-                                <TableHead className="text-center">קוד</TableHead>
-                                <TableHead className="text-center">תאריך סיום</TableHead>
-                                <TableHead className="text-center">יתרה מתואמת</TableHead>
-                                <TableHead className="text-center">ריבית</TableHead>
-                                <TableHead className="text-center">החזר משוער</TableHead>
-                                <TableHead className="text-center w-32">התקדמות</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {loanTracks.map((t, i) => {
-                                const start = t.first_payment_date ? new Date(t.first_payment_date) : null;
-                                const end = t.end_date ? new Date(t.end_date) : null;
-                                const today = new Date();
-                                const totalMo = start && end ? monthsBetween(start, end) : 0;
-                                const elapsed = start ? monthsBetween(start, today) : 0;
-                                const progress = totalMo > 0 ? Math.min(100, (elapsed / totalMo) * 100) : 0;
-                                return (
-                                  <TableRow key={i}>
-                                    <TableCell className="font-medium">
-                                      {t.track_name || "—"}
-                                      <Badge variant="outline" className="mr-2 text-[10px]" style={{ borderColor: COLORS[t._category as keyof typeof COLORS] }}>
-                                        {t._category === "prime" ? "פריים" : t._category === "cpi" ? "מדד" : t._category === "variable" ? "משתנה" : "קבועה"}
-                                      </Badge>
-                                    </TableCell>
-                                    <TableCell className="text-center text-xs">{t.track_code ?? "—"}</TableCell>
-                                    <TableCell className="text-center text-xs whitespace-nowrap">
-                                      {end ? end.toLocaleDateString("he-IL") : "—"}
-                                    </TableCell>
-                                    <TableCell className="text-center font-medium">{fmtILS(t.balance_with_fees ?? t.balance ?? 0)}</TableCell>
-                                    <TableCell className="text-center">{fmtPct(t._rate)}</TableCell>
-                                    <TableCell className="text-center font-semibold">{fmtILS(t._pmt)}</TableCell>
-                                    <TableCell>
-                                      <div className="flex items-center gap-2">
-                                        <Progress value={progress} className="h-2" />
-                                        <span className="text-[10px] text-muted-foreground w-8">{progress.toFixed(0)}%</span>
-                                      </div>
-                                    </TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </TableBody>
-                          </Table>
-                        </div>
+                        <TooltipProvider delayDuration={150}>
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead className="text-right whitespace-nowrap">שם מסלול</TableHead>
+                                  <TableHead className="text-center">קוד</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">תאריך סיום</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">יתרה מתואמת</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">ריבית מתואמת</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">ריבית להשוואה</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">הפרשי הצמדה</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">סך קנסות</TableHead>
+                                  <TableHead className="text-center whitespace-nowrap">החזר משוער</TableHead>
+                                  <TableHead className="text-center w-32">התקדמות</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {loanTracks.map((t, i) => {
+                                  const start = t.first_payment_date ? new Date(t.first_payment_date) : null;
+                                  const end = t.end_date ? new Date(t.end_date) : null;
+                                  const today = new Date();
+                                  const totalMo = start && end ? monthsBetween(start, end) : 0;
+                                  const elapsed = start ? monthsBetween(start, today) : 0;
+                                  const progress = totalMo > 0 ? Math.min(100, (elapsed / totalMo) * 100) : 0;
+                                  const penalties = trackPenalties(t);
+                                  const hasArrears = (t.arrears_debt || 0) > 0;
+                                  return (
+                                    <TableRow key={i} className={hasArrears ? "bg-red-500/5" : ""}>
+                                      <TableCell className="font-medium whitespace-nowrap">
+                                        <div className="flex items-center gap-1">
+                                          {hasArrears && (
+                                            <UITooltip>
+                                              <TooltipTrigger asChild>
+                                                <AlertTriangle className="h-3.5 w-3.5 text-red-600 animate-pulse" />
+                                              </TooltipTrigger>
+                                              <TooltipContent>חוב פיגורים: {fmtILS(t.arrears_debt || 0)}</TooltipContent>
+                                            </UITooltip>
+                                          )}
+                                          <span>{t.track_name || "—"}</span>
+                                          <Badge variant="outline" className="mr-1 text-[10px]" style={{ borderColor: COLORS[t._category as keyof typeof COLORS] }}>
+                                            {t._category === "prime" ? "פריים" : t._category === "cpi" ? "מדד" : t._category === "variable" ? "משתנה" : "קבועה"}
+                                          </Badge>
+                                        </div>
+                                      </TableCell>
+                                      <TableCell className="text-center text-xs">{t.track_code ?? "—"}</TableCell>
+                                      <TableCell className="text-center text-xs whitespace-nowrap">
+                                        {end ? end.toLocaleDateString("he-IL") : "—"}
+                                      </TableCell>
+                                      <TableCell className="text-center font-medium whitespace-nowrap">{fmtILS(t.balance_with_fees ?? t.balance ?? 0)}</TableCell>
+                                      <TableCell className="text-center whitespace-nowrap">
+                                        {typeof t.interest_rate_percent === "number"
+                                          ? fmtPct(t.interest_rate_percent)
+                                          : fmtPct(t._rate)}
+                                      </TableCell>
+                                      <TableCell className="text-center whitespace-nowrap text-muted-foreground">
+                                        {typeof t.comparison_interest_rate === "number" ? fmtPct(t.comparison_interest_rate) : "—"}
+                                      </TableCell>
+                                      <TableCell className={`text-center whitespace-nowrap ${(t.linkage_differences || 0) > 0 ? "text-red-600 dark:text-red-400 font-medium" : ""}`}>
+                                        {fmtILS(t.linkage_differences || 0)}
+                                      </TableCell>
+                                      <TableCell className="text-center whitespace-nowrap">
+                                        <UITooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className={penalties > 0 ? "font-medium cursor-help underline decoration-dotted" : "text-muted-foreground"}>
+                                              {fmtILS(penalties)}
+                                            </span>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            <div className="text-xs space-y-0.5">
+                                              <div>היוון: {fmtILS(t.capitalization_fee || 0)}</div>
+                                              <div>ריבית שלא חויבה: {fmtILS(t.accumulated_unbilled_interest || 0)}</div>
+                                              <div>אי-הודעה מראש: {fmtILS(t.non_advance_notice_fee || 0)}</div>
+                                            </div>
+                                          </TooltipContent>
+                                        </UITooltip>
+                                      </TableCell>
+                                      <TableCell className="text-center font-semibold whitespace-nowrap">{fmtILS(t._pmt)}</TableCell>
+                                      <TableCell>
+                                        <div className="flex items-center gap-2">
+                                          <Progress value={progress} className="h-2" />
+                                          <span className="text-[10px] text-muted-foreground w-8">{progress.toFixed(0)}%</span>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </TooltipProvider>
                       </AccordionContent>
                     </AccordionItem>
                   );
