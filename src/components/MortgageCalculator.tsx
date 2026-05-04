@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,19 +8,20 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Check, AlertCircle, Calculator } from "lucide-react";
+import { Plus, Trash2, Check, AlertCircle, Calculator, Save, RotateCcw, BookOpen, Download } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, Legend,
   LineChart, Line, PieChart, Pie, Cell,
 } from "recharts";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 // ===== Daily market data (snapshot) =====
-// Updated daily; replace as needed. Annual % rates.
 export const MARKET_DATA = {
   asOf: "2026-05-01",
-  boiRate: 4.5,        // ריבית בנק ישראל
-  primeRate: 6.0,      // פריים = בנק ישראל + 1.5
-  cpiAnnual: 2.8,      // מדד שנתי משוער
+  boiRate: 4.5,
+  primeRate: 6.0,
+  cpiAnnual: 2.8,
 };
 
 type TrackType = "פריים" | "קבועה לא צמודה" | "קבועה צמודה" | "משתנה לא צמודה" | "משתנה צמודה";
@@ -30,9 +31,9 @@ interface Track {
   id: string;
   type: TrackType;
   schedule: Schedule;
-  pct: number; // percent of total mortgage
+  pct: number;
   months: number;
-  rate: number; // annual %
+  rate: number;
 }
 
 interface Mix {
@@ -44,12 +45,15 @@ interface Mix {
 const TRACK_TYPES: TrackType[] = ["פריים", "קבועה לא צמודה", "קבועה צמודה", "משתנה לא צמודה", "משתנה צמודה"];
 const SCHEDULES: Schedule[] = ["שפיצר", "קרן שווה"];
 const TRACK_COLORS = ["hsl(var(--primary))", "hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(38 92% 50%)", "hsl(280 65% 60%)", "hsl(346 87% 53%)"];
+const MIX_COLORS = ["hsl(var(--primary))", "hsl(142 71% 45%)", "hsl(38 92% 50%)", "hsl(280 65% 60%)", "hsl(346 87% 53%)"];
 
 const fmt = (n: number) => Math.round(n).toLocaleString("he-IL", { style: "currency", currency: "ILS", maximumFractionDigits: 0 });
 const fmtNum = (n: number) => Math.round(n).toLocaleString("en-US");
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-// Number input with thousands separators
+const STORAGE_KEY = "mortgageCalc.state.v1";
+
+// Number input with thousands separators (free typing)
 function NumberInput({ value, onChange, className, placeholder }: { value: number; onChange: (n: number) => void; className?: string; placeholder?: string }) {
   return (
     <Input
@@ -67,6 +71,51 @@ function NumberInput({ value, onChange, className, placeholder }: { value: numbe
   );
 }
 
+// Free-text percent input — keeps raw text while typing, displays % suffix.
+function PercentInput({ value, onChange, className, allowOverHundred = false }: {
+  value: number;
+  onChange: (n: number) => void;
+  className?: string;
+  allowOverHundred?: boolean;
+}) {
+  const [text, setText] = useState<string>(value ? String(value) : "");
+  // Sync external value changes only when user is not actively editing a different value
+  useEffect(() => {
+    const parsed = parseFloat(text);
+    if (Number.isNaN(parsed) || parsed !== value) {
+      setText(value ? String(value) : "");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <div className="relative">
+      <Input
+        type="text"
+        inputMode="decimal"
+        dir="ltr"
+        className={`pl-7 ${className ?? ""}`}
+        value={text}
+        onChange={(e) => {
+          const raw = e.target.value.replace(/[^\d.]/g, "");
+          // keep only first dot
+          const parts = raw.split(".");
+          const cleaned = parts.length > 1 ? parts[0] + "." + parts.slice(1).join("") : raw;
+          setText(cleaned);
+          if (cleaned === "" || cleaned === ".") {
+            onChange(0);
+            return;
+          }
+          const n = parseFloat(cleaned);
+          if (!Number.isNaN(n)) {
+            onChange(allowOverHundred ? n : Math.min(n, 999));
+          }
+        }}
+      />
+      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none">%</span>
+    </div>
+  );
+}
+
 function defaultRateFor(type: TrackType): number {
   switch (type) {
     case "פריים": return MARKET_DATA.primeRate - 0.5;
@@ -81,7 +130,6 @@ function isLinked(type: TrackType): boolean {
   return type === "קבועה צמודה" || type === "משתנה צמודה";
 }
 
-// ===== Amortization =====
 interface MonthRow { month: number; payment: number; principal: number; interest: number; balance: number; }
 
 function amortize(track: Track, amount: number): MonthRow[] {
@@ -130,14 +178,64 @@ function defaultMix(name: string): Mix {
   return { id: uid(), name, tracks: [emptyTrack()] };
 }
 
+const DEFAULTS = {
+  propertyValue: 2000000,
+  mortgageAmount: 1400000,
+  income: 0,
+  mixes: [defaultMix("תמהיל א")],
+};
+
+interface SavedComparison {
+  id: string;
+  name: string;
+  property_value: number;
+  mortgage_amount: number;
+  income: number;
+  mixes: Mix[];
+  created_at: string;
+}
+
 interface Props { open: boolean; onOpenChange: (v: boolean) => void; }
 
 export default function MortgageCalculator({ open, onOpenChange }: Props) {
-  const [propertyValue, setPropertyValue] = useState<number>(2000000);
-  const [mortgageAmount, setMortgageAmount] = useState<number>(1400000);
-  const [income, setIncome] = useState<number>(0);
-  const [mixes, setMixes] = useState<Mix[]>([defaultMix("תמהיל א")]);
-  const [activeMixId, setActiveMixId] = useState<string>(mixes[0].id);
+  const { toast } = useToast();
+
+  // Load persisted state
+  const initial = (() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return null;
+  })();
+
+  const [propertyValue, setPropertyValue] = useState<number>(initial?.propertyValue ?? DEFAULTS.propertyValue);
+  const [mortgageAmount, setMortgageAmount] = useState<number>(initial?.mortgageAmount ?? DEFAULTS.mortgageAmount);
+  const [income, setIncome] = useState<number>(initial?.income ?? DEFAULTS.income);
+  const [mixes, setMixes] = useState<Mix[]>(initial?.mixes ?? DEFAULTS.mixes);
+  const [activeMixId, setActiveMixId] = useState<string>(initial?.mixes?.[0]?.id ?? mixes[0].id);
+  const [activeRightTab, setActiveRightTab] = useState<string>("payments");
+  const [savedComparisons, setSavedComparisons] = useState<SavedComparison[]>([]);
+  const [savingName, setSavingName] = useState<string>("");
+
+  // Persist on change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ propertyValue, mortgageAmount, income, mixes }));
+    } catch { /* ignore */ }
+  }, [propertyValue, mortgageAmount, income, mixes]);
+
+  // Load saved comparisons when dialog opens
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      const { data, error } = await supabase
+        .from("mortgage_comparisons")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (!error && data) setSavedComparisons(data as any);
+    })();
+  }, [open]);
 
   const activeMix = mixes.find(m => m.id === activeMixId) ?? mixes[0];
   const financingPct = propertyValue > 0 ? (mortgageAmount / propertyValue) * 100 : 0;
@@ -147,7 +245,7 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
   };
 
   const addMix = () => {
-    const name = `תמהיל ${String.fromCharCode(1488 + mixes.length)}`; // א, ב, ג...
+    const name = `תמהיל ${String.fromCharCode(1488 + mixes.length)}`;
     const m = defaultMix(name);
     setMixes(prev => [...prev, m]);
     setActiveMixId(m.id);
@@ -170,12 +268,8 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
   const sumTracks = (sumPct / 100) * mortgageAmount;
   const tracksMatch = Math.abs(sumPct - 100) < 0.01;
 
-  // ===== Computed per active mix =====
-  const computed = useMemo(() => {
-    return computeMix(activeMix, mortgageAmount);
-  }, [activeMix, mortgageAmount]);
+  const computed = useMemo(() => computeMix(activeMix, mortgageAmount), [activeMix, mortgageAmount]);
 
-  // ===== Comparison summary across mixes =====
   const comparison = useMemo(() => {
     return mixes.map(m => {
       const c = computeMix(m, mortgageAmount);
@@ -186,13 +280,13 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
         name: m.name,
         initialMonthly: c.initialMonthly,
         totalPayment: total,
+        totalInterest: c.totalInterest,
         costPerShekel: principal > 0 ? total / principal : 0,
         principal,
       };
     });
   }, [mixes, mortgageAmount]);
 
-  // ===== Charts data =====
   const yearlyStacked = useMemo(() => {
     const maxMonths = Math.max(0, ...activeMix.tracks.map(t => t.months));
     const years = Math.ceil(maxMonths / 12);
@@ -227,7 +321,7 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
       data.push({ month: m, balance: Math.round(bal) });
     }
     return data;
-  }, [activeMix, computed]);
+  }, [activeMix, computed, mortgageAmount]);
 
   const mixPie = activeMix.tracks
     .filter(t => trackAmount(t, mortgageAmount) > 0)
@@ -238,26 +332,156 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
     { name: "ריבית", value: Math.round(computed.totalInterest), color: "hsl(346 87% 53%)" },
   ];
 
+  // ===== Cross-mix comparison data =====
+  const compareMonthlyByYear = useMemo(() => {
+    const maxMonths = Math.max(0, ...mixes.flatMap(m => m.tracks.map(t => t.months)));
+    const years = Math.ceil(maxMonths / 12);
+    const perMixComputed = mixes.map(m => computeMix(m, mortgageAmount));
+    const data: any[] = [];
+    for (let y = 1; y <= years; y++) {
+      const row: any = { year: `שנה ${y}` };
+      mixes.forEach((m, mi) => {
+        const startM = (y - 1) * 12 + 1;
+        let total = 0;
+        perMixComputed[mi].perTrack.forEach((rows) => {
+          const r = rows.find(rr => rr.month === startM);
+          if (r) total += r.payment;
+        });
+        row[m.name] = Math.round(total);
+      });
+      data.push(row);
+    }
+    return data;
+  }, [mixes, mortgageAmount]);
+
+  const compareBalance = useMemo(() => {
+    const maxMonths = Math.max(0, ...mixes.flatMap(m => m.tracks.map(t => t.months)));
+    const step = Math.max(1, Math.floor(maxMonths / 60));
+    const perMixComputed = mixes.map(m => computeMix(m, mortgageAmount));
+    const data: any[] = [];
+    for (let mo = 0; mo <= maxMonths; mo += step) {
+      const row: any = { month: mo };
+      mixes.forEach((mix, mi) => {
+        let bal = 0;
+        mix.tracks.forEach((t, ti) => {
+          const rows = perMixComputed[mi].perTrack[ti] || [];
+          if (mo === 0) bal += trackAmount(t, mortgageAmount);
+          else {
+            const r = rows.find(rr => rr.month === mo);
+            if (r) bal += r.balance;
+          }
+        });
+        row[mix.name] = Math.round(bal);
+      });
+      data.push(row);
+    }
+    return data;
+  }, [mixes, mortgageAmount]);
+
+  const cheapest = comparison.reduce((min, c) => (!min || c.totalPayment < min.totalPayment ? c : min), null as typeof comparison[0] | null);
+  const lowestMonthly = comparison.reduce((min, c) => (!min || c.initialMonthly < min.initialMonthly ? c : min), null as typeof comparison[0] | null);
+
+  // ===== Reset & Save =====
+  const handleReset = () => {
+    if (!confirm("לאפס את כל נתוני המחשבון לערכי ברירת המחדל?")) return;
+    setPropertyValue(DEFAULTS.propertyValue);
+    setMortgageAmount(DEFAULTS.mortgageAmount);
+    setIncome(DEFAULTS.income);
+    const fresh = [defaultMix("תמהיל א")];
+    setMixes(fresh);
+    setActiveMixId(fresh[0].id);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    toast({ title: "המחשבון אופס" });
+  };
+
+  const handleSaveToJournal = async () => {
+    const name = (savingName || "").trim() || `השוואה ${new Date().toLocaleString("he-IL")}`;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast({ title: "צריך להתחבר", variant: "destructive" });
+      return;
+    }
+    const { data, error } = await supabase
+      .from("mortgage_comparisons")
+      .insert({
+        user_id: user.id,
+        name,
+        property_value: propertyValue,
+        mortgage_amount: mortgageAmount,
+        income,
+        mixes: mixes as any,
+      })
+      .select()
+      .single();
+    if (error) {
+      toast({ title: "שגיאה בשמירה", description: error.message, variant: "destructive" });
+      return;
+    }
+    setSavedComparisons(prev => [data as any, ...prev]);
+    setSavingName("");
+    toast({ title: "נשמר ליומן ההשוואות", description: name });
+  };
+
+  const handleLoadComparison = (c: SavedComparison) => {
+    setPropertyValue(Number(c.property_value) || 0);
+    setMortgageAmount(Number(c.mortgage_amount) || 0);
+    setIncome(Number(c.income) || 0);
+    const loaded = (c.mixes || []) as Mix[];
+    if (loaded.length > 0) {
+      setMixes(loaded);
+      setActiveMixId(loaded[0].id);
+    }
+    toast({ title: "נטען מהיומן", description: c.name });
+  };
+
+  const handleDeleteComparison = async (id: string) => {
+    if (!confirm("למחוק את ההשוואה השמורה?")) return;
+    const { error } = await supabase.from("mortgage_comparisons").delete().eq("id", id);
+    if (error) {
+      toast({ title: "שגיאה במחיקה", description: error.message, variant: "destructive" });
+      return;
+    }
+    setSavedComparisons(prev => prev.filter(c => c.id !== id));
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent dir="rtl" className="max-w-[95vw] lg:max-w-[1400px] max-h-[92vh] overflow-y-auto p-0">
         <DialogHeader className="p-6 pb-2">
-          <DialogTitle className="flex items-center gap-2 text-xl">
-            <Calculator className="h-5 w-5 text-primary" />
-            מחשבון משכנתא
-          </DialogTitle>
-          <p className="text-xs text-muted-foreground">
-            נתוני שוק ({MARKET_DATA.asOf}): פריים {MARKET_DATA.primeRate}% · בנק ישראל {MARKET_DATA.boiRate}% · מדד שנתי {MARKET_DATA.cpiAnnual}%
-          </p>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <Calculator className="h-5 w-5 text-primary" />
+                מחשבון משכנתא
+              </DialogTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                נתוני שוק ({MARKET_DATA.asOf}): פריים {MARKET_DATA.primeRate}% · בנק ישראל {MARKET_DATA.boiRate}% · מדד שנתי {MARKET_DATA.cpiAnnual}%
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Input
+                placeholder="שם להשוואה (לא חובה)"
+                value={savingName}
+                onChange={(e) => setSavingName(e.target.value)}
+                className="h-8 w-48 text-xs"
+              />
+              <Button size="sm" onClick={handleSaveToJournal}>
+                <Save className="h-4 w-4 ml-1" /> שמור ליומן
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleReset}>
+                <RotateCcw className="h-4 w-4 ml-1" /> אפס
+              </Button>
+            </div>
+          </div>
         </DialogHeader>
 
-        {/* Mix tabs */}
+        {/* Mix tabs + Summary */}
         <div className="px-6">
           <div className="flex items-center gap-2 flex-wrap border-b pb-2">
             {mixes.map(m => (
               <div key={m.id} className="flex items-center">
                 <button
-                  onClick={() => setActiveMixId(m.id)}
+                  onClick={() => { setActiveMixId(m.id); setActiveRightTab("payments"); }}
                   className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
                     activeMixId === m.id ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/70"
                   }`}
@@ -274,6 +498,16 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
             <Button size="sm" variant="outline" onClick={addMix}>
               <Plus className="h-4 w-4 ml-1" /> הוסף תמהיל
             </Button>
+            <div className="mr-auto">
+              <button
+                onClick={() => setActiveRightTab("summary")}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  activeRightTab === "summary" ? "bg-primary text-primary-foreground" : "bg-accent hover:bg-accent/70"
+                }`}
+              >
+                📊 סיכום והשוואה
+              </button>
+            </div>
           </div>
         </div>
 
@@ -288,34 +522,28 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>שווי נכס</Label>
-                    <NumberInput value={propertyValue} onChange={(v) => setPropertyValue(v)} />
+                    <NumberInput value={propertyValue} onChange={setPropertyValue} />
                   </div>
                   <div>
                     <Label>סכום משכנתא</Label>
-                    <NumberInput value={mortgageAmount} onChange={(v) => setMortgageAmount(v)} />
+                    <NumberInput value={mortgageAmount} onChange={setMortgageAmount} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>אחוז מימון</Label>
-                    <div className="relative">
-                      <Input
-                        type="number"
-                        step="0.1"
-                        dir="ltr"
-                        className={financingPct > 75 ? "border-destructive text-destructive" : ""}
-                        value={Number.isFinite(financingPct) ? financingPct.toFixed(1) : ""}
-                        onChange={(e) => {
-                          const pct = Number(e.target.value);
-                          if (!Number.isFinite(pct) || propertyValue <= 0) return;
-                          setMortgageAmount(Math.round((pct / 100) * propertyValue));
-                        }}
-                      />
-                    </div>
+                    <PercentInput
+                      value={Number(financingPct.toFixed(2))}
+                      onChange={(pct) => {
+                        if (propertyValue > 0) setMortgageAmount(Math.round((pct / 100) * propertyValue));
+                      }}
+                      className={financingPct > 75 ? "border-destructive text-destructive" : ""}
+                      allowOverHundred
+                    />
                   </div>
                   <div>
                     <Label>הכנסה פנויה (לא חובה)</Label>
-                    <NumberInput value={income} onChange={(v) => setIncome(v)} />
+                    <NumberInput value={income} onChange={setIncome} />
                   </div>
                 </div>
               </CardContent>
@@ -354,13 +582,7 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                     <div className="grid grid-cols-3 gap-2">
                       <div>
                         <Label className="text-xs">אחוז מההלוואה</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          dir="ltr"
-                          value={t.pct || ""}
-                          onChange={e => patchTrack(t.id, { pct: Number(e.target.value) })}
-                        />
+                        <PercentInput value={t.pct} onChange={(v) => patchTrack(t.id, { pct: v })} />
                         <span className="text-[10px] text-muted-foreground">
                           ≈ {fmt(trackAmount(t, mortgageAmount))}
                         </span>
@@ -371,8 +593,8 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                         <span className="text-[10px] text-muted-foreground">{(t.months / 12).toFixed(1)} שנים</span>
                       </div>
                       <div>
-                        <Label className="text-xs">ריבית %</Label>
-                        <Input type="number" step="0.01" dir="ltr" value={t.rate || ""} onChange={e => patchTrack(t.id, { rate: Number(e.target.value) })} />
+                        <Label className="text-xs">ריבית</Label>
+                        <PercentInput value={t.rate} onChange={(v) => patchTrack(t.id, { rate: v })} />
                       </div>
                     </div>
                     <div className="flex justify-between items-center">
@@ -401,6 +623,41 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                 </div>
               </CardContent>
             </Card>
+
+            {/* ===== Saved comparisons journal ===== */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BookOpen className="h-4 w-4" /> יומן השוואות שמורות
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {savedComparisons.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">אין השוואות שמורות עדיין</p>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto">
+                    {savedComparisons.map(c => (
+                      <div key={c.id} className="flex items-center justify-between rounded-md border p-2 hover:bg-muted/50">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">{c.name}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {new Date(c.created_at).toLocaleString("he-IL")} · {fmt(Number(c.mortgage_amount))} · {(c.mixes as any[])?.length || 0} תמהילים
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => handleLoadComparison(c)} title="טען">
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleDeleteComparison(c.id)} title="מחק">
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           {/* ===== RIGHT: Outputs ===== */}
@@ -411,12 +668,12 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
               <Card><CardContent className="p-3"><div className="text-xs text-muted-foreground">עלות לכל ₪</div><div className="text-lg font-bold">{computed.totalPrincipal > 0 ? (computed.totalPayment / computed.totalPrincipal).toFixed(2) : "—"}</div></CardContent></Card>
             </div>
 
-            <Tabs defaultValue="payments">
+            <Tabs value={activeRightTab} onValueChange={setActiveRightTab}>
               <TabsList className="w-full">
                 <TabsTrigger value="payments" className="flex-1">החזר חודשי</TabsTrigger>
                 <TabsTrigger value="balance" className="flex-1">יתרת קרן</TabsTrigger>
                 <TabsTrigger value="mix" className="flex-1">חלוקה</TabsTrigger>
-                <TabsTrigger value="compare" className="flex-1">השוואה</TabsTrigger>
+                <TabsTrigger value="summary" className="flex-1">סיכום</TabsTrigger>
               </TabsList>
 
               <TabsContent value="payments">
@@ -477,29 +734,107 @@ export default function MortgageCalculator({ open, onOpenChange }: Props) {
                 </div>
               </TabsContent>
 
-              <TabsContent value="compare">
-                <Card><CardContent className="p-3 overflow-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-right">תמהיל</TableHead>
-                        <TableHead className="text-right">החזר חודשי התחלתי</TableHead>
-                        <TableHead className="text-right">סך החזר כולל</TableHead>
-                        <TableHead className="text-right">עלות לכל ₪</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {comparison.map(c => (
-                        <TableRow key={c.id} className={c.id === activeMixId ? "bg-muted/50" : ""}>
-                          <TableCell className="font-medium">{c.name}</TableCell>
-                          <TableCell>{fmt(c.initialMonthly)}</TableCell>
-                          <TableCell>{fmt(c.totalPayment)}</TableCell>
-                          <TableCell>{c.costPerShekel.toFixed(2)}</TableCell>
+              <TabsContent value="summary">
+                <div className="space-y-3">
+                  {/* KPI cards */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Card>
+                      <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">הזול ביותר (סך החזר)</div>
+                        <div className="text-base font-bold">{cheapest?.name ?? "—"}</div>
+                        <div className="text-xs">{cheapest ? fmt(cheapest.totalPayment) : "—"}</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="p-3">
+                        <div className="text-xs text-muted-foreground">החזר חודשי הנמוך ביותר</div>
+                        <div className="text-base font-bold">{lowestMonthly?.name ?? "—"}</div>
+                        <div className="text-xs">{lowestMonthly ? fmt(lowestMonthly.initialMonthly) : "—"}</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Comparison table */}
+                  <Card><CardContent className="p-3 overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-right">תמהיל</TableHead>
+                          <TableHead className="text-right">החזר חודשי</TableHead>
+                          <TableHead className="text-right">סך ריבית</TableHead>
+                          <TableHead className="text-right">סך החזר</TableHead>
+                          <TableHead className="text-right">עלות לכל ₪</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent></Card>
+                      </TableHeader>
+                      <TableBody>
+                        {comparison.map(c => (
+                          <TableRow key={c.id} className={c.id === activeMixId ? "bg-muted/50" : ""}>
+                            <TableCell className="font-medium">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-block w-2 h-2 rounded-full" style={{ background: MIX_COLORS[mixes.findIndex(m => m.id === c.id) % MIX_COLORS.length] }} />
+                                {c.name}
+                              </div>
+                            </TableCell>
+                            <TableCell>{fmt(c.initialMonthly)}</TableCell>
+                            <TableCell>{fmt(c.totalInterest)}</TableCell>
+                            <TableCell>{fmt(c.totalPayment)}</TableCell>
+                            <TableCell>{c.costPerShekel.toFixed(2)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent></Card>
+
+                  {/* Charts: monthly per mix over time */}
+                  <Card><CardContent className="p-3 h-[280px]">
+                    <div className="text-xs font-medium mb-1">השוואת החזר חודשי לאורך זמן</div>
+                    <ResponsiveContainer width="100%" height="90%">
+                      <LineChart data={compareMonthlyByYear}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="year" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v / 1000).toFixed(0) + "K"} />
+                        <RTooltip formatter={(v: any) => fmt(Number(v))} contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))" }} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        {mixes.map((m, i) => (
+                          <Line key={m.id} type="monotone" dataKey={m.name} stroke={MIX_COLORS[i % MIX_COLORS.length]} strokeWidth={2} dot={false} />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent></Card>
+
+                  {/* Charts: balance trajectory per mix */}
+                  <Card><CardContent className="p-3 h-[280px]">
+                    <div className="text-xs font-medium mb-1">השוואת יתרת קרן</div>
+                    <ResponsiveContainer width="100%" height="90%">
+                      <LineChart data={compareBalance}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} tickFormatter={(v) => (v / 12).toFixed(0) + "ש"} />
+                        <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v / 1000).toFixed(0) + "K"} />
+                        <RTooltip formatter={(v: any) => fmt(Number(v))} labelFormatter={(l) => `חודש ${l}`} contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))" }} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        {mixes.map((m, i) => (
+                          <Line key={m.id} type="monotone" dataKey={m.name} stroke={MIX_COLORS[i % MIX_COLORS.length]} strokeWidth={2} dot={false} />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent></Card>
+
+                  {/* Bar comparison: total cost */}
+                  <Card><CardContent className="p-3 h-[260px]">
+                    <div className="text-xs font-medium mb-1">סך ההחזר לפי תמהיל</div>
+                    <ResponsiveContainer width="100%" height="90%">
+                      <BarChart data={comparison.map(c => ({ name: c.name, total: Math.round(c.totalPayment), interest: Math.round(c.totalInterest) }))}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                        <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => (v / 1000).toFixed(0) + "K"} />
+                        <RTooltip formatter={(v: any) => fmt(Number(v))} contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))" }} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
+                        <Bar dataKey="interest" fill="hsl(346 87% 53%)" name="ריבית" />
+                        <Bar dataKey="total" fill="hsl(var(--primary))" name="סך החזר" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent></Card>
+                </div>
               </TabsContent>
             </Tabs>
           </div>
