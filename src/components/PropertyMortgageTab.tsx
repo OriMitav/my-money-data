@@ -126,7 +126,14 @@ const parseDate = (input?: string | null): Date | null => {
 };
 
 const getTrackBalance = (t: MortgageTrack): number =>
-  Number(t.track_balance_with_fees ?? t.balance_with_fees ?? t.track_balance_without_fees ?? t.balance ?? 0);
+  Number(
+    t.track_balance_with_fees ??
+    t.balance_with_fees ??
+    t.track_balance ??
+    t.track_balance_without_fees ??
+    t.balance ??
+    0
+  );
 
 // Mock daily market data
 const MARKET_DATA = {
@@ -138,9 +145,9 @@ const MARKET_DATA = {
 };
 
 const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "cpi" => {
-  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.track_code || ""}`.toLowerCase();
+  const blob = `${track.track_type || ""} ${track.track_name || ""} ${track.annual_interest_rate_string || ""} ${track.track_code || ""}`.toLowerCase();
   if (blob.includes("prime") || blob.includes("פריים") || blob.includes("1078")) return "prime";
-  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("6085")) return "variable";
+  if (blob.includes("variable") || blob.includes("משתנה") || blob.includes("עוגן") || blob.includes("6085")) return "variable";
   if (blob.includes("cpi") || blob.includes("מדד") || blob.includes("צמוד")) return "cpi";
   return "fixed";
 };
@@ -149,11 +156,84 @@ const classifyTrack = (track: MortgageTrack): "prime" | "fixed" | "variable" | "
 // We intentionally do NOT fall back to market rates anymore — the chart and
 // PMT calculations should be based strictly on the user's bank data.
 const getRateForTrack = (track: MortgageTrack): number | null => {
+  const r0 = track.annual_interest_rate_percent;
+  if (typeof r0 === "number" && r0 >= 0) return r0;
   const r1 = track.interest_rate_percent;
   if (typeof r1 === "number" && r1 > 0) return r1;
   const r2 = track.interest_rate;
   if (typeof r2 === "number" && r2 > 0) return r2;
   return null;
+};
+
+// Normalize a loan from the new bank JSON schema into the canonical shape used
+// throughout the component. Maps loan_number→loan_account_number, flattens
+// balance_breakdown, and copies new track fields (track_balance, track_end_date,
+// annual_interest_rate_percent, track_original_amount) onto the existing keys.
+const normalizeLoan = (loan: any): MortgageLoan => {
+  const bb: BalanceBreakdown = loan.balance_breakdown || {
+    principal_balance: loan.principal_balance,
+    total_linkage_differences: loan.total_linkage_differences,
+    interest_for_clearance: loan.interest_for_clearance,
+    total_early_repayment_fees: loan.total_early_repayment_fees,
+  };
+  const totalWith = Number(loan.total_balance_with_fees ?? loan.loan_balance_with_fees) || 0;
+  const principal = Number(bb.principal_balance) || 0;
+  const linkage = Number(bb.total_linkage_differences) || 0;
+  const fees = (Number(bb.interest_for_clearance) || 0) + (Number(bb.total_early_repayment_fees) || 0);
+  const tracks: MortgageTrack[] = (loan.tracks || []).map((t: any) => ({
+    ...t,
+    track_code: t.track_code ?? t.track_number,
+    end_date: t.end_date || t.track_end_date,
+    track_balance_with_fees: t.track_balance_with_fees ?? t.track_balance,
+    balance: t.balance ?? t.track_balance,
+    original_amount: t.original_amount ?? t.track_original_amount,
+    interest_rate_percent: t.interest_rate_percent ?? t.annual_interest_rate_percent,
+  }));
+  return {
+    ...loan,
+    loan_account_number: loan.loan_account_number ?? loan.loan_number,
+    loan_balance_with_fees: loan.loan_balance_with_fees ?? totalWith,
+    loan_balance_without_fees:
+      loan.loan_balance_without_fees ?? Math.max(0, totalWith - fees),
+    balance_breakdown: bb,
+    principal_balance: principal,
+    total_linkage_differences: linkage,
+    interest_for_clearance: Number(bb.interest_for_clearance) || 0,
+    total_early_repayment_fees: Number(bb.total_early_repayment_fees) || 0,
+    recent_payments: Array.isArray(loan.recent_payments) ? loan.recent_payments : [],
+    tracks,
+  };
+};
+
+const normalizePayload = (raw: any): MortgagePayload => {
+  const loans = (raw.loans || []).map(normalizeLoan);
+  const totalWith =
+    Number(raw.total_mortgage_balance_with_fees) ||
+    loans.reduce((s, l) => s + (Number(l.loan_balance_with_fees) || 0), 0);
+  const totalWithout =
+    Number(raw.total_mortgage_balance_without_fees) ||
+    loans.reduce((s, l) => s + (Number(l.loan_balance_without_fees) || 0), 0);
+  // pick most recent report_date across loans if top-level missing
+  let reportDate: string = raw.report_date || "";
+  if (!reportDate) {
+    for (const l of loans as any[]) {
+      if (l.report_date) { reportDate = l.report_date; break; }
+    }
+  }
+  return {
+    report_date: reportDate || new Date().toISOString().slice(0, 10),
+    total_mortgage_balance_with_fees: totalWith,
+    total_mortgage_balance_without_fees: totalWithout,
+    loans,
+  };
+};
+
+// Parse "MM.YYYY" → Date (1st of month)
+const parseMonthYear = (s?: string): Date | null => {
+  if (!s) return null;
+  const m = /^(\d{1,2})[./-](\d{4})$/.exec(s.trim());
+  if (!m) return parseDate(s);
+  return new Date(+m[2], +m[1] - 1, 1);
 };
 
 const trackPenalties = (t: MortgageTrack): number =>
