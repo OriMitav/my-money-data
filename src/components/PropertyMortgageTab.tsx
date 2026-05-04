@@ -819,18 +819,22 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {snapshots.map(s => (
-                      <TableRow key={s.id}>
-                        <TableCell>{(parseDate(s.report_date) || new Date()).toLocaleDateString("he-IL")}</TableCell>
-                        <TableCell className="text-center">{fmtILS(s.total_balance_without_fees)}</TableCell>
-                        <TableCell className="text-center">{fmtILS(s.total_balance_with_fees)}</TableCell>
-                        <TableCell className="text-center">
-                          <Button size="icon" variant="ghost" onClick={() => { if (confirm("למחוק את התמונה?")) deleteMutation.mutate(s.id); }}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {snapshots.map(s => {
+                      const w = Number(s.total_balance_with_fees) || Number(s.payload?.total_mortgage_balance_with_fees) || 0;
+                      const wo = Number(s.total_balance_without_fees) || Number(s.payload?.total_mortgage_balance_without_fees) || 0;
+                      return (
+                        <TableRow key={s.id}>
+                          <TableCell>{(parseDate(s.report_date) || new Date()).toLocaleDateString("he-IL")}</TableCell>
+                          <TableCell className="text-center">{fmtILS(wo)}</TableCell>
+                          <TableCell className="text-center">{fmtILS(w)}</TableCell>
+                          <TableCell className="text-center">
+                            <Button size="icon" variant="ghost" onClick={() => { if (confirm("למחוק את התמונה?")) deleteMutation.mutate(s.id); }}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
