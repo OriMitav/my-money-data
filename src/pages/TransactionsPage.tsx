@@ -856,6 +856,7 @@ export default function TransactionsPage() {
                             <span className="text-muted-foreground text-xs">—</span>
                           )}
                         </TableCell>
+                        <TableCell className="text-center hidden md:table-cell">
                           <Badge variant="outline" className="text-xs">{paidVia}</Badge>
                         </TableCell>
                         <TableCell className="text-center hidden lg:table-cell">
