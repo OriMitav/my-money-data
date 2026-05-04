@@ -1070,6 +1070,43 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
             </CardContent>
           </Card>
 
+          {/* ===== Amortization Schedule ===== */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">לוח סילוקין צפוי</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {amortSchedule.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">לא ניתן לחשב לוח סילוקין (חסרים נתוני ריבית).</p>
+              ) : (
+                <div className="max-h-[440px] overflow-y-auto overflow-x-auto border rounded-md">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-background z-10">
+                      <TableRow>
+                        <TableHead className="text-right whitespace-nowrap">חודש</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">תשלום קרן</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">תשלום ריבית</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">% קרן בתשלום</TableHead>
+                        <TableHead className="text-center whitespace-nowrap">יתרה לסוף החודש</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {amortSchedule.map((r, i) => (
+                        <TableRow key={i}>
+                          <TableCell className="text-right whitespace-nowrap text-xs">{r.label}</TableCell>
+                          <TableCell className="text-center whitespace-nowrap">{fmtILS(r.principal)}</TableCell>
+                          <TableCell className="text-center whitespace-nowrap">{fmtILS(r.interest)}</TableCell>
+                          <TableCell className="text-center whitespace-nowrap">{r.principalPct.toFixed(1)}%</TableCell>
+                          <TableCell className="text-center whitespace-nowrap font-medium">{fmtILS(r.balance)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* ===== Rate Matrix per category ===== */}
           <Card>
             <CardHeader className="pb-2">
