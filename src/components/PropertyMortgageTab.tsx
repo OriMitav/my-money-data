@@ -242,19 +242,23 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   // ============ Derived calculations ============
   const tracksEnriched = useMemo(() => {
-    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _loanType: string; _pmt: number; _months: number; _rate: number; _category: string; _balance: number }>;
+    if (!payload) return [] as Array<MortgageTrack & { _loanId: string; _loanType: string; _pmt: number; _months: number; _rate: number | null; _category: string; _balance: number; _hasRate: boolean; _hasReportedPmt: boolean }>;
     const today = parseDate(payload.report_date) || new Date();
     const out: any[] = [];
     for (const loan of payload.loans || []) {
       for (const t of loan.tracks || []) {
         const end = parseDate(t.end_date);
         const months = end ? monthsBetween(today, end) : 0;
-        const rate = getRateForTrack(t);
+        const rate = getRateForTrack(t); // null if not in JSON
         const balance = getTrackBalance(t);
-        // Prefer the bank-reported monthly payment when available (most accurate);
-        // fall back to Spitzer based on current balance + remaining months.
         const reportedPmt = Number(t.monthly_payment) || 0;
-        const pmt = reportedPmt > 0 ? reportedPmt : spitzerPMT(balance, rate, months);
+        // Strict: use only data that comes from the JSON.
+        // 1) Reported monthly_payment wins.
+        // 2) Otherwise compute Spitzer ONLY if a real interest rate exists in the JSON.
+        // 3) Otherwise 0 (surfaced in UI as "חסר נתון").
+        let pmt = 0;
+        if (reportedPmt > 0) pmt = reportedPmt;
+        else if (rate != null && balance > 0 && months > 0) pmt = spitzerPMT(balance, rate, months);
         out.push({
           ...t,
           _loanId: String(loan.loan_account_number || ""),
@@ -264,6 +268,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
           _rate: rate,
           _category: classifyTrack(t),
           _balance: balance,
+          _hasRate: rate != null,
+          _hasReportedPmt: reportedPmt > 0,
         });
       }
     }
