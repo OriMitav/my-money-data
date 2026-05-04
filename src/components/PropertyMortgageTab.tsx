@@ -333,22 +333,27 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   });
 
   const handleSubmitJson = () => {
-    let parsed: MortgagePayload;
+    let parsed: any;
     try {
       parsed = JSON.parse(jsonText);
     } catch (e: any) {
       toast.error("JSON לא תקין: " + e.message);
       return;
     }
-    if (!parsed.report_date || !Array.isArray(parsed.loans)) {
-      toast.error("ה-JSON חייב לכלול report_date ומערך loans");
+    if (!Array.isArray(parsed?.loans)) {
+      toast.error("ה-JSON חייב לכלול מערך loans");
       return;
     }
-    insertMutation.mutate(parsed);
+    const normalized = normalizePayload(parsed);
+    insertMutation.mutate(normalized);
   };
 
   const latest = snapshots[0];
-  const payload = latest?.payload;
+  // Normalize on read too — supports older snapshots saved before normalization.
+  const payload: MortgagePayload | undefined = useMemo(
+    () => (latest?.payload ? normalizePayload(latest.payload) : undefined),
+    [latest]
+  );
 
   // ============ Derived calculations ============
   const tracksEnriched = useMemo(() => {
