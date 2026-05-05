@@ -539,13 +539,14 @@ export default function AssetsPage() {
                   <div className="flex justify-between"><span>שווי שוק</span><span className="font-mono">{marketValue !== null ? fmt(marketValue) : "—"}</span></div>
                   <div className="flex justify-between text-red-600"><span>− קרן (יתרה ללא קנסות)</span><span className="font-mono">{fmt(mortInfo.balanceWithoutFees)}</span></div>
                   <div className="flex justify-between text-red-600"><span>− קנסות יציאה</span><span className="font-mono">{fmt(mortInfo.earlyRepaymentFees)}</span></div>
+                  <div className="flex justify-between text-red-600"><span>− מס שבח (25% על {fmt(capitalGain)})</span><span className="font-mono">{fmt(capitalGainsTax)}</span></div>
                   <div className={`flex justify-between ${cashflowTotals.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
                     <span>{cashflowTotals.balance >= 0 ? "+" : "−"} מאזן מצטבר</span>
                     <span className="font-mono">{fmt(Math.abs(cashflowTotals.balance))}</span>
                   </div>
                   <div className="border-t pt-1.5 flex justify-between font-semibold"><span>רווח נטו</span><span className="font-mono">{profitability !== null ? fmt(profitability) : "—"}</span></div>
                   <div className="text-[10px] text-muted-foreground pt-1">
-                    שווי נכס פחות קרן ({fmt(mortInfo.balanceWithoutFees)}) פחות קנסות יציאה ({fmt(mortInfo.earlyRepaymentFees)}) {cashflowTotals.balance >= 0 ? "ועוד" : "פחות"} מאזן מצטבר ({fmt(Math.abs(cashflowTotals.balance))})
+                    שווי שוק − קרן − קנסות יציאה − מס שבח (25% מהרווח על מחיר הקנייה) {cashflowTotals.balance >= 0 ? "+" : "−"} מאזן מצטבר
                   </div>
                 </PopoverContent>
               </Popover>
