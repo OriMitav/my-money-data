@@ -359,7 +359,7 @@ export default function AssetsPage() {
     setSelectedProperty({ ...prop, monthly_rent_income: value });
   };
 
-  // (cashflow totals hook is hoisted above the early return to keep hook order stable)
+  const cashflowTotals = cashflowTotalsByProperty.get(prop.id) || { income: 0, expense: 0, balance: 0 };
 
   // Property profitability: Market Value - Capital Gains Tax (25% on gain) + Cumulative Cashflow Balance
   const capitalGain = marketValue !== null ? Math.max(0, marketValue - prop.purchase_price) : 0;
