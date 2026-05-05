@@ -1384,3 +1384,28 @@ function KpiCard({ icon, label, value, sub }: { icon: React.ReactNode; label: st
     </Card>
   );
 }
+
+function MacroCard({ label, value, sub, fetchedAt }: { label: string; value: string; sub?: string; fetchedAt?: string }) {
+  return (
+    <Card className="bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/60 dark:border-blue-900/40">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-2 text-blue-900/80 dark:text-blue-200/80 text-xs mb-2">
+          <div className="flex items-center gap-2">
+            <span className="relative inline-flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75 animate-ping" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+            </span>
+            <span>{label}</span>
+          </div>
+          {fetchedAt && (
+            <span className="text-[10px] text-muted-foreground">
+              {new Date(fetchedAt).toLocaleDateString("he-IL")}
+            </span>
+          )}
+        </div>
+        <div className="text-xl sm:text-2xl font-bold tracking-tight">{value}</div>
+        {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
+      </CardContent>
+    </Card>
+  );
+}
