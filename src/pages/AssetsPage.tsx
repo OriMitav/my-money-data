@@ -393,10 +393,13 @@ export default function AssetsPage() {
   const cashflowTotals = cashflowTotalsByProperty.get(prop.id) || { income: 0, expense: 0, balance: 0 };
 
   // Property profitability (updated formula):
-  //   Market Value − total_balance_without_fees − total_early_repayment_fees + cumulative cashflow balance
+  //   Market Value − balance_without_fees − early_repayment_fees − capital_gains_tax + cumulative cashflow balance
+  // Israeli capital gains tax on real estate ("מס שבח") = 25% on the nominal profit (Market Value − Purchase Price).
   const mortInfo = mortgageByProperty.get(prop.id) || { balanceWithoutFees: 0, earlyRepaymentFees: 0 };
+  const capitalGain = marketValue !== null ? Math.max(0, marketValue - prop.purchase_price) : 0;
+  const capitalGainsTax = capitalGain * 0.25;
   const profitability = marketValue !== null
-    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees + cashflowTotals.balance
+    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees - capitalGainsTax + cashflowTotals.balance
     : null;
 
   return (
@@ -536,13 +539,14 @@ export default function AssetsPage() {
                   <div className="flex justify-between"><span>שווי שוק</span><span className="font-mono">{marketValue !== null ? fmt(marketValue) : "—"}</span></div>
                   <div className="flex justify-between text-red-600"><span>− קרן (יתרה ללא קנסות)</span><span className="font-mono">{fmt(mortInfo.balanceWithoutFees)}</span></div>
                   <div className="flex justify-between text-red-600"><span>− קנסות יציאה</span><span className="font-mono">{fmt(mortInfo.earlyRepaymentFees)}</span></div>
+                  <div className="flex justify-between text-red-600"><span>− מס שבח (25% על {fmt(capitalGain)})</span><span className="font-mono">{fmt(capitalGainsTax)}</span></div>
                   <div className={`flex justify-between ${cashflowTotals.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
                     <span>{cashflowTotals.balance >= 0 ? "+" : "−"} מאזן מצטבר</span>
                     <span className="font-mono">{fmt(Math.abs(cashflowTotals.balance))}</span>
                   </div>
                   <div className="border-t pt-1.5 flex justify-between font-semibold"><span>רווח נטו</span><span className="font-mono">{profitability !== null ? fmt(profitability) : "—"}</span></div>
                   <div className="text-[10px] text-muted-foreground pt-1">
-                    שווי נכס פחות קרן ({fmt(mortInfo.balanceWithoutFees)}) פחות קנסות יציאה ({fmt(mortInfo.earlyRepaymentFees)}) {cashflowTotals.balance >= 0 ? "ועוד" : "פחות"} מאזן מצטבר ({fmt(Math.abs(cashflowTotals.balance))})
+                    שווי שוק − קרן − קנסות יציאה − מס שבח (25% מהרווח על מחיר הקנייה) {cashflowTotals.balance >= 0 ? "+" : "−"} מאזן מצטבר
                   </div>
                 </PopoverContent>
               </Popover>
