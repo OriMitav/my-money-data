@@ -393,10 +393,10 @@ export default function AssetsPage() {
   const cashflowTotals = cashflowTotalsByProperty.get(prop.id) || { income: 0, expense: 0, balance: 0 };
 
   // Property profitability (updated formula):
-  //   Market Value − total_balance_without_fees − total_early_repayment_fees
+  //   Market Value − total_balance_without_fees − total_early_repayment_fees + cumulative cashflow balance
   const mortInfo = mortgageByProperty.get(prop.id) || { balanceWithoutFees: 0, earlyRepaymentFees: 0 };
   const profitability = marketValue !== null
-    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees
+    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees + cashflowTotals.balance
     : null;
 
   return (
