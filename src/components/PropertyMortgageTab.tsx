@@ -318,6 +318,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   const [openDialog, setOpenDialog] = useState(false);
   const [jsonText, setJsonText] = useState("");
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
+  const [marketAnchorRate, setMarketAnchorRate] = useState<number>(3.0);
 
   const { data: snapshots = [], isLoading } = useQuery({
     queryKey: ["mortgage_snapshots", propertyId],
