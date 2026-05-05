@@ -942,6 +942,23 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
 
 
+  // ============ Personalized rate strings (for macro KPI cards) ============
+  const personalRates = useMemo(() => {
+    const findByCat = (cat: string) =>
+      tracksEnriched.find(t => t._category === cat && t._rate != null);
+    const fmtPersonal = (t: any) => {
+      const str = (t as any).annual_interest_rate_string;
+      const r = t._rate != null ? `${t._rate.toFixed(2)}%` : "—";
+      return str ? `${r} (${str})` : r;
+    };
+    const prime = findByCat("prime");
+    const variable = findByCat("variable");
+    return {
+      prime: prime ? fmtPersonal(prime) : null,
+      variable: variable ? fmtPersonal(variable) : null,
+    };
+  }, [tracksEnriched]);
+
   // ============ Render ============
   return (
     <div dir="rtl" className="space-y-4 sm:space-y-6">
