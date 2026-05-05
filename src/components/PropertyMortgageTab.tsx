@@ -534,7 +534,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return [...hist, ...forecast];
   }, [payload, snapshots, tracksEnriched]);
 
-  // Stacked monthly payment over years — grouped by category (פריים, קבועה, משתנה, צמוד מדד)
+  // Stacked monthly payment over years — grouped by category, with predictive
+  // adjustment for variable tracks based on the live bond yield index.
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
     const today = parseDate(payload.report_date) || new Date();
@@ -545,39 +546,73 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       variable: "ריבית משתנה",
       cpi: "צמוד מדד",
     };
-    // Determine which categories are actually present (preserve a stable order)
     const presentSet = new Set<string>();
     tracksEnriched.forEach(t => presentSet.add(t._category));
     const order = ["prime", "fixed", "variable", "cpi"].filter(c => presentSet.has(c));
     const keys = order.map(c => CAT_LABEL[c]);
 
+    // For each variable track, compute the next adjustment year (5y anniversary
+    // of first_payment_date that is in the future). After that year, use the
+    // current bond yield as the projected rate to recompute the PMT.
+    const variableProjection = new Map<number, { year: number; oldPmt: number; newPmt: number }>();
+    const projectedPmtByTrack = new Map<number, { changeYear: number | null; basePmt: number; newPmt: number }>();
+    tracksEnriched.forEach((t, idx) => {
+      if (t._category !== "variable") return;
+      const start = parseDate(t.first_payment_date);
+      if (!start) return;
+      const candidate = new Date(start);
+      while (candidate <= today) candidate.setFullYear(candidate.getFullYear() + 5);
+      const changeYear = candidate.getFullYear();
+      const end = parseDate(t.end_date);
+      const monthsFromChange = end ? monthsBetween(candidate, end) : 0;
+      const projectedRate = market?.bondYield ?? t._rate ?? 0;
+      const newPmt = monthsFromChange > 0 && t._balance > 0
+        ? spitzerPMT(t._balance, projectedRate, monthsFromChange)
+        : t._pmt;
+      projectedPmtByTrack.set(idx, { changeYear, basePmt: t._pmt, newPmt });
+      variableProjection.set(idx, { year: changeYear, oldPmt: t._pmt, newPmt });
+    });
+
     const rows: Record<number, any> = {};
     const startY = today.getFullYear();
     for (let y = startY; y <= horizon; y++) {
-      rows[y] = { year: y, total: 0 };
+      rows[y] = { year: y, total: 0, _changes: [] as string[] };
       keys.forEach(k => { rows[y][k] = 0; });
     }
-    tracksEnriched.forEach(t => {
+    tracksEnriched.forEach((t, idx) => {
       const end = parseDate(t.end_date);
       const endY = end ? end.getFullYear() : startY;
       const label = CAT_LABEL[t._category] || "אחר";
+      const proj = projectedPmtByTrack.get(idx);
       for (let y = startY; y <= Math.min(endY, horizon); y++) {
-        rows[y][label] = (rows[y][label] || 0) + (t._pmt || 0);
-        rows[y].total += (t._pmt || 0);
+        const pmt = proj && y >= proj.changeYear! ? proj.newPmt : t._pmt;
+        rows[y][label] = (rows[y][label] || 0) + (pmt || 0);
+        rows[y].total += (pmt || 0);
+      }
+      // Mark end-of-track as a change
+      if (end && endY <= horizon && endY + 1 <= horizon && rows[endY + 1]) {
+        rows[endY + 1]._changes.push(`סיום מסלול ${t.track_name || t._category} (${endY})`);
+      }
+      if (proj && rows[proj.changeYear!]) {
+        rows[proj.changeYear!]._changes.push(`התאמת ריבית משתנה (${t.track_name || ""}) לפי תשואת אג"ח ${(market?.bondYield ?? 0).toFixed(2)}%`);
       }
     });
-    // Round for display
     const out = Object.values(rows)
       .sort((a: any, b: any) => a.year - b.year)
       .map((r: any) => {
-        const o: any = { year: r.year, total: Math.round(r.total) };
+        const o: any = { year: r.year, total: Math.round(r.total), _changes: r._changes };
         keys.forEach(k => { o[k] = Math.round(r[k] || 0); });
         return o;
       })
-      // Trim trailing zero years to keep chart focused
       .filter((r: any, _i, arr) => r.total > 0 || arr[0].year === r.year);
+    // Flag delta vs previous row
+    out.forEach((r, i) => {
+      const prev = i > 0 ? out[i - 1] : null;
+      r._delta = prev ? r.total - prev.total : 0;
+      r._flagged = !!prev && r.total !== prev.total;
+    });
     return { rows: out, keys };
-  }, [payload, tracksEnriched]);
+  }, [payload, tracksEnriched, market]);
 
   // ============ Track Mix donut data ============
   const COLORS = {
