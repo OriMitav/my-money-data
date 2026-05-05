@@ -848,20 +848,12 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                         : `משוער: ${fmtILS(totalPMT)}`
                     }
                   />
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                        <Activity className="h-4 w-4" /><span>מקורי מול נוכחי</span>
-                      </div>
-                      <div className="text-lg sm:text-xl font-bold tracking-tight truncate">
-                        {fmtILS(originalTotals.current)}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-1 truncate">
-                        מקורי: {fmtILS(originalTotals.original)} • שולם: {fmtILS(originalTotals.paidOff)} ({originalTotals.pctPaid.toFixed(1)}%)
-                      </div>
-                      <Progress value={originalTotals.pctPaid} className="h-1.5 mt-2" />
-                    </CardContent>
-                  </Card>
+                  <KpiCard
+                    icon={<TrendingUp className="h-4 w-4" />}
+                    label="החזר חודשי משוער (לפי מסלולים)"
+                    value={fmtILS(totalPMT)}
+                    sub={`${tracksEnriched.length} מסלולים פעילים`}
+                  />
                   <KpiCard
                     icon={<Flame className="h-4 w-4" />}
                     label='סה"כ עמלות והצמדה'
@@ -870,31 +862,25 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   />
                 </div>
 
-                {/* Secondary KPI row — exposure/exit metrics preserved from prior version */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-3">
-                  <KpiCard
-                    icon={<TrendingUp className="h-4 w-4" />}
-                    label="החזר חודשי משוער (לפי מסלולים)"
-                    value={fmtILS(totalPMT)}
-                    sub={`${tracksEnriched.length} מסלולים פעילים`}
+                {/* Live macro-economic data cards (fetched daily) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-3">
+                  <MacroCard
+                    label="ריבית בנק ישראל"
+                    value={market ? `${market.boiRate.toFixed(2)}%` : "…"}
+                    sub={market ? `ריבית פריים: ${market.primeRate.toFixed(2)}%` : ""}
+                    fetchedAt={market?.fetchedAt}
                   />
-                  <KpiCard
-                    icon={<Calendar className="h-4 w-4" />}
-                    label="נקודת יציאה קרובה"
-                    value={nextExit ? nextExit.toLocaleDateString("he-IL") : "—"}
-                    sub={nextExit ? "תחנת יציאה משתנה" : "אין מסלולים משתנים"}
+                  <MacroCard
+                    label="מדד המחירים לצרכן"
+                    value={market ? `${market.cpi.toFixed(2)}%` : "…"}
+                    sub="שינוי שנתי"
+                    fetchedAt={market?.fetchedAt}
                   />
-                  <KpiCard
-                    icon={<Activity className="h-4 w-4" />}
-                    label="חשיפה לפריים / מדד"
-                    value={`${(exposure.pcts.prime || 0).toFixed(0)}% / ${(exposure.pcts.cpi || 0).toFixed(0)}%`}
-                    sub={`קבועה: ${(exposure.pcts.fixed || 0).toFixed(0)}% • משתנה: ${(exposure.pcts.variable || 0).toFixed(0)}%`}
-                  />
-                  <KpiCard
-                    icon={<Wallet className="h-4 w-4" />}
-                    label="מס' הלוואות פעילות"
-                    value={String((payload.loans || []).length)}
-                    sub={`סה"כ ${tracksEnriched.length} מסלולים`}
+                  <MacroCard
+                    label='מדד תשואות האג"ח'
+                    value={market ? `${market.bondYield.toFixed(2)}%` : "…"}
+                    sub="תשואה ממוצעת"
+                    fetchedAt={market?.fetchedAt}
                   />
                 </div>
 
