@@ -451,6 +451,70 @@ export default function AssetsPage() {
         </Card>
       </div>
 
+
+      {/* Global Cashflow + Profitability summary (always visible) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
+              <TrendingDown className="h-4 w-4 text-red-500" />
+              <span>סך הוצאות</span>
+            </div>
+            <div className="text-lg sm:text-xl font-bold text-red-600">{fmt(cashflowTotals.expense)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
+              <TrendingUp className="h-4 w-4 text-green-500" />
+              <span>סך הכנסות</span>
+            </div>
+            <div className="text-lg sm:text-xl font-bold text-green-600">{fmt(cashflowTotals.income)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
+              <Wallet className="h-4 w-4" />
+              <span>מאזן מצטבר</span>
+            </div>
+            <div className={`text-lg sm:text-xl font-bold ${cashflowTotals.balance >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {fmt(cashflowTotals.balance)}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2 text-muted-foreground text-xs mb-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                <span>רווחיות נכס</span>
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-6 w-6">
+                    <Info className="h-3.5 w-3.5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-72 text-xs space-y-1.5" dir="rtl" align="end">
+                  <div className="font-semibold text-sm mb-1">חישוב הרווחיות</div>
+                  <div className="flex justify-between"><span>שווי שוק</span><span className="font-mono">{marketValue !== null ? fmt(marketValue) : "—"}</span></div>
+                  <div className="flex justify-between"><span>מחיר קנייה</span><span className="font-mono">{fmt(prop.purchase_price)}</span></div>
+                  <div className="flex justify-between"><span>רווח הון</span><span className="font-mono">{fmt(capitalGain)}</span></div>
+                  <div className="flex justify-between text-red-600"><span>− מס שבח (25%)</span><span className="font-mono">{fmt(capitalGainsTax)}</span></div>
+                  <div className="flex justify-between"><span>+ מאזן תזרים מצטבר</span><span className="font-mono">{fmt(cashflowTotals.balance)}</span></div>
+                  <div className="border-t pt-1.5 flex justify-between font-semibold"><span>רווחיות נטו</span><span className="font-mono">{profitability !== null ? fmt(profitability) : "—"}</span></div>
+                  <div className="text-[10px] text-muted-foreground pt-1">נוסחה: שווי שוק − מס שבח + מאזן תזרים</div>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className={`text-lg sm:text-xl font-bold ${profitability !== null && profitability >= prop.purchase_price ? "text-green-600" : ""}`}>
+              {profitability !== null ? fmt(profitability) : "—"}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} dir="rtl">
         <TabsList className="w-full flex overflow-x-auto">
