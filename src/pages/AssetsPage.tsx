@@ -335,6 +335,35 @@ export default function AssetsPage() {
     setSelectedProperty({ ...prop, monthly_rent_income: value });
   };
 
+  // Cashflow totals (lifted from PropertyCashflowTab so they stay visible across tabs)
+  const { data: cashflowRows = [] } = useQuery({
+    queryKey: ["property_cashflow", prop.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("property_cashflow")
+        .select("amount")
+        .eq("property_id", prop.id);
+      if (error) throw error;
+      return data as { amount: number }[];
+    },
+    enabled: !!user,
+  });
+  const cashflowTotals = useMemo(() => {
+    let income = 0, expense = 0;
+    cashflowRows.forEach(r => {
+      const a = Number(r.amount) || 0;
+      if (a >= 0) income += a; else expense += a;
+    });
+    return { income, expense: Math.abs(expense), balance: income + expense };
+  }, [cashflowRows]);
+
+  // Property profitability: Market Value - Capital Gains Tax (25% on gain) + Cumulative Cashflow Balance
+  const capitalGain = marketValue !== null ? Math.max(0, marketValue - prop.purchase_price) : 0;
+  const capitalGainsTax = capitalGain * 0.25;
+  const profitability = marketValue !== null
+    ? marketValue - capitalGainsTax + cashflowTotals.balance
+    : null;
+
   return (
     <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-0" dir="rtl">
       {/* Header */}
