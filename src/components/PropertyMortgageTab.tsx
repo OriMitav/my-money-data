@@ -1625,7 +1625,7 @@ function KpiCard({ icon, label, value, sub }: { icon: React.ReactNode; label: st
   );
 }
 
-function MacroCard({ label, value, sub, fetchedAt }: { label: string; value: string; sub?: string; fetchedAt?: string }) {
+function MacroCard({ label, value, sub, personal, fetchedAt }: { label: string; value: string; sub?: string; personal?: string | null; fetchedAt?: string }) {
   return (
     <Card className="bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/60 dark:border-blue-900/40">
       <CardContent className="p-4">
@@ -1645,6 +1645,11 @@ function MacroCard({ label, value, sub, fetchedAt }: { label: string; value: str
         </div>
         <div className="text-xl sm:text-2xl font-bold tracking-tight">{value}</div>
         {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
+        {personal && (
+          <div className="text-[11px] text-muted-foreground mt-1.5 pt-1.5 border-t border-blue-200/50 dark:border-blue-900/40 truncate" title={personal}>
+            {personal}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
