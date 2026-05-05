@@ -265,6 +265,7 @@ const spitzerPMT = (balance: number, annualRatePct: number, months: number) => {
 export default function PropertyMortgageTab({ propertyId }: { propertyId: string }) {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const { data: market } = useMarketData();
   const [openDialog, setOpenDialog] = useState(false);
   const [jsonText, setJsonText] = useState("");
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
