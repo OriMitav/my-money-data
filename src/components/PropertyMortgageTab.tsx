@@ -1059,10 +1059,37 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     <XAxis dataKey="year" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
                     <RTooltip
-                      formatter={(v: number, name: string) => [fmtILS(Number(v)), name]}
-                      labelFormatter={(label, payload: any[]) => {
-                        const total = payload?.[0]?.payload?.total;
-                        return `${label} • סה"כ ${fmtILS(Number(total) || 0)}`;
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row: any = payload[0].payload;
+                        const changes: string[] = row?._changes || [];
+                        const delta = row?._delta || 0;
+                        return (
+                          <div dir="rtl" className="rounded-md border bg-background shadow-md p-3 text-xs space-y-1.5 min-w-[220px]">
+                            <div className="font-semibold border-b pb-1">{label} • סה"כ {fmtILS(Number(row?.total) || 0)}</div>
+                            {payload.map((p: any, i) => p.value > 0 && (
+                              <div key={i} className="flex items-center justify-between gap-3">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.fill }} />
+                                  {p.name}
+                                </span>
+                                <span className="font-mono">{fmtILS(Number(p.value))}</span>
+                              </div>
+                            ))}
+                            {row?._flagged && (
+                              <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
+                                <div className={`font-semibold ${delta > 0 ? "text-red-600" : "text-green-600"}`}>
+                                  שינוי: {delta > 0 ? "+" : ""}{fmtILS(delta)}
+                                </div>
+                                {changes.length > 0 ? changes.map((c, i) => (
+                                  <div key={i} className="text-muted-foreground">• {c}</div>
+                                )) : (
+                                  <div className="text-muted-foreground">סיום של מסלול אחד או יותר</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
