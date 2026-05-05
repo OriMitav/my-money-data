@@ -585,7 +585,51 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   }, [payload, snapshots, tracksEnriched]);
 
   // Stacked monthly payment over years — grouped by category, with predictive
-  // adjustment for variable tracks based on the live bond yield index.
+  // ============ Variable-track "station" projections ============
+  // For each variable track, locate the next interest-change "station":
+  //   • prefer the explicit next_interest_change_date from JSON
+  //   • else 5y anniversary of first_payment_date
+  // Then derive new rate = current_market_anchor_rate + extracted_margin
+  // (margin is parsed out of annual_interest_rate_string e.g. "עוגן + % 2.80").
+  const trackProjections = useMemo(() => {
+    if (!payload) return new Map<number, { stationDate: Date; stationMonth: number; newRate: number; margin: number; oldRate: number | null }>();
+    const today = parseDate(payload.report_date) || new Date();
+    const out = new Map<number, { stationDate: Date; stationMonth: number; newRate: number; margin: number; oldRate: number | null }>();
+    tracksEnriched.forEach((t, idx) => {
+      if (t._category !== "variable") return;
+      const explicit = parseDate((t as any).next_interest_change_date);
+      let station: Date | null = explicit;
+      if (!station) {
+        const start = parseDate(t.first_payment_date);
+        if (!start) return;
+        const c = new Date(start);
+        while (c <= today) c.setFullYear(c.getFullYear() + 5);
+        station = c;
+      }
+      if (!station || station <= today) return;
+      const margin = extractMargin((t as any).annual_interest_rate_string) ?? 0;
+      const newRate = marketAnchorRate + margin;
+      out.set(idx, {
+        stationDate: station,
+        stationMonth: monthsBetween(today, station),
+        newRate,
+        margin,
+        oldRate: t._rate,
+      });
+    });
+    return out;
+  }, [payload, tracksEnriched, marketAnchorRate]);
+
+  // ============ Per-track full amortization (with stations applied) ============
+  const trackAmortizations = useMemo(() => {
+    return tracksEnriched.map((t, idx) => {
+      const proj = trackProjections.get(idx);
+      const station = proj ? { month: proj.stationMonth, newRate: proj.newRate } : null;
+      return amortizeTrack(t._balance, t._rate, t._months, t._pmt, station);
+    });
+  }, [tracksEnriched, trackProjections]);
+
+  // ============ Stacked monthly payment over years (categories) ============
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
     const today = parseDate(payload.report_date) || new Date();
@@ -601,28 +645,6 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     const order = ["prime", "fixed", "variable", "cpi"].filter(c => presentSet.has(c));
     const keys = order.map(c => CAT_LABEL[c]);
 
-    // For each variable track, compute the next adjustment year (5y anniversary
-    // of first_payment_date that is in the future). After that year, use the
-    // current bond yield as the projected rate to recompute the PMT.
-    const variableProjection = new Map<number, { year: number; oldPmt: number; newPmt: number }>();
-    const projectedPmtByTrack = new Map<number, { changeYear: number | null; basePmt: number; newPmt: number }>();
-    tracksEnriched.forEach((t, idx) => {
-      if (t._category !== "variable") return;
-      const start = parseDate(t.first_payment_date);
-      if (!start) return;
-      const candidate = new Date(start);
-      while (candidate <= today) candidate.setFullYear(candidate.getFullYear() + 5);
-      const changeYear = candidate.getFullYear();
-      const end = parseDate(t.end_date);
-      const monthsFromChange = end ? monthsBetween(candidate, end) : 0;
-      const projectedRate = market?.bondYield ?? t._rate ?? 0;
-      const newPmt = monthsFromChange > 0 && t._balance > 0
-        ? spitzerPMT(t._balance, projectedRate, monthsFromChange)
-        : t._pmt;
-      projectedPmtByTrack.set(idx, { changeYear, basePmt: t._pmt, newPmt });
-      variableProjection.set(idx, { year: changeYear, oldPmt: t._pmt, newPmt });
-    });
-
     const rows: Record<number, any> = {};
     const startY = today.getFullYear();
     for (let y = startY; y <= horizon; y++) {
@@ -633,18 +655,23 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       const end = parseDate(t.end_date);
       const endY = end ? end.getFullYear() : startY;
       const label = CAT_LABEL[t._category] || "אחר";
-      const proj = projectedPmtByTrack.get(idx);
+      const proj = trackProjections.get(idx);
+      const stationYear = proj ? proj.stationDate.getFullYear() : null;
+      const newPmt = proj
+        ? spitzerPMT(t._balance, proj.newRate, Math.max(1, t._months - proj.stationMonth))
+        : t._pmt;
       for (let y = startY; y <= Math.min(endY, horizon); y++) {
-        const pmt = proj && y >= proj.changeYear! ? proj.newPmt : t._pmt;
+        const pmt = stationYear != null && y >= stationYear ? newPmt : t._pmt;
         rows[y][label] = (rows[y][label] || 0) + (pmt || 0);
         rows[y].total += (pmt || 0);
       }
-      // Mark end-of-track as a change
       if (end && endY <= horizon && endY + 1 <= horizon && rows[endY + 1]) {
         rows[endY + 1]._changes.push(`סיום מסלול ${t.track_name || t._category} (${endY})`);
       }
-      if (proj && rows[proj.changeYear!]) {
-        rows[proj.changeYear!]._changes.push(`התאמת ריבית משתנה (${t.track_name || ""}) לפי תשואת אג"ח ${(market?.bondYield ?? 0).toFixed(2)}%`);
+      if (proj && rows[stationYear!]) {
+        rows[stationYear!]._changes.push(
+          `התאמת ריבית משתנה (${t.track_name || ""}) לפי עוגן ${marketAnchorRate.toFixed(2)}% + מרווח ${proj.margin.toFixed(2)}% = ${proj.newRate.toFixed(2)}%`
+        );
       }
     });
     const out = Object.values(rows)
@@ -655,14 +682,14 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
         return o;
       })
       .filter((r: any, _i, arr) => r.total > 0 || arr[0].year === r.year);
-    // Flag delta vs previous row
     out.forEach((r, i) => {
       const prev = i > 0 ? out[i - 1] : null;
       r._delta = prev ? r.total - prev.total : 0;
       r._flagged = !!prev && r.total !== prev.total;
     });
     return { rows: out, keys };
-  }, [payload, tracksEnriched, market]);
+  }, [payload, tracksEnriched, trackProjections, marketAnchorRate]);
+
 
   // ============ Track Mix donut data ============
   const COLORS = {
