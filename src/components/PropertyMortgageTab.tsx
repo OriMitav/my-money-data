@@ -1110,14 +1110,36 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                       <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}K`} />
-                      <RTooltip formatter={(v: number, name: string) => [fmtILS(Number(v)), name === "actual" ? "בפועל" : "תחזית"]} />
-                      <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => (v === "actual" ? "בפועל" : "תחזית")} />
-                      <Bar dataKey="actual" fill="hsl(200, 75%, 50%)" name="actual" />
-                      <Bar dataKey="forecast" fill="hsl(200, 75%, 50%)" fillOpacity={0.35} name="forecast" />
+                      <RTooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const row: any = payload[0].payload;
+                          const total = row.actual ?? row.forecastTotal ?? 0;
+                          return (
+                            <div dir="rtl" className="rounded-md border bg-background shadow-md p-3 text-xs space-y-1 min-w-[180px]">
+                              <div className="font-semibold border-b pb-1">{label}</div>
+                              {row.actual != null && (
+                                <div className="flex justify-between"><span>בפועל</span><span className="font-mono">{fmtILS(row.actual)}</span></div>
+                              )}
+                              {row.forecastPrincipal != null && (
+                                <>
+                                  <div className="flex justify-between"><span style={{ color: "hsl(150, 60%, 40%)" }}>תשלום קרן</span><span className="font-mono">{fmtILS(row.forecastPrincipal)}</span></div>
+                                  <div className="flex justify-between"><span style={{ color: "hsl(15, 85%, 55%)" }}>תשלום ריבית</span><span className="font-mono">{fmtILS(row.forecastInterest || 0)}</span></div>
+                                </>
+                              )}
+                              <div className="flex justify-between border-t pt-1 font-semibold"><span>סה"כ החזר</span><span className="font-mono">{fmtILS(total)}</span></div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="actual" stackId="hist" fill="hsl(200, 75%, 50%)" name="בפועל" />
+                      <Bar dataKey="forecastPrincipal" stackId="fc" fill="hsl(150, 60%, 40%)" name="תשלום קרן (תחזית)" />
+                      <Bar dataKey="forecastInterest" stackId="fc" fill="hsl(15, 85%, 55%)" name="תשלום ריבית (תחזית)" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1 text-center">עמודות מלאות = בפועל • שקופות = תחזית</p>
+                <p className="text-xs text-muted-foreground mt-1 text-center">היסטוריה (כחול) • תחזית מפוצלת לקרן (ירוק) וריבית (כתום)</p>
               </CardContent>
             </Card>
             <Card>
