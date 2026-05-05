@@ -835,57 +835,95 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   // Payment history (actuals from recent_payments) + 24-month forecast based on current track PMTs
   const paymentHistoryAndForecast = useMemo(() => {
-    if (!payload) return [] as { label: string; actual?: number; forecast?: number }[];
-    const monthlyForecast = totalPMT;
+    if (!payload) return [] as { label: string; actual?: number; forecastPrincipal?: number; forecastInterest?: number; forecastTotal?: number }[];
     const today = parseDate(payload.report_date) || new Date();
-    const out: { label: string; actual?: number; forecast?: number }[] = [];
+    const out: { label: string; actual?: number; forecastPrincipal?: number; forecastInterest?: number; forecastTotal?: number }[] = [];
     paymentHistory.forEach(p => {
       out.push({
         label: `${String(p.date.getMonth() + 1).padStart(2, "0")}/${String(p.date.getFullYear()).slice(-2)}`,
         actual: Math.round(p.amount),
       });
     });
-    // forecast 24 months ahead from the month after the last actual / report_date
+    // Forecast 24 months ahead — sum each track's monthly principal/interest
+    // from trackAmortizations (which already accounts for station rate changes).
     const last = paymentHistory.length
       ? new Date(paymentHistory[paymentHistory.length - 1].date)
       : new Date(today);
-    for (let i = 1; i <= 24; i++) {
+    const offsetMonths = monthsBetween(today, last) + 1; // first forecast month index in trackAmortizations
+    for (let i = 0; i < 24; i++) {
       const d = new Date(last);
-      d.setMonth(d.getMonth() + i);
+      d.setMonth(d.getMonth() + i + 1);
+      const mIdx = offsetMonths + i; // 1-based month relative to "today"
+      let pSum = 0, iSum = 0;
+      trackAmortizations.forEach(steps => {
+        const step = steps[mIdx - 1];
+        if (step) { pSum += step.principal; iSum += step.interest; }
+      });
+      const total = pSum + iSum;
       out.push({
         label: `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`,
-        forecast: Math.round(monthlyForecast),
+        forecastPrincipal: Math.round(pSum),
+        forecastInterest: Math.round(iSum),
+        forecastTotal: Math.round(total),
       });
     }
     return out;
-  }, [payload, paymentHistory, totalPMT]);
+  }, [payload, paymentHistory, trackAmortizations]);
+
+  // ============ Stacked-area debt amortization series ============
+  // For each future month: remaining principal + remaining future interest
+  // (sum of all interest payments still to be made). Sampled every 6 months.
+  const debtAmortizationSeries = useMemo(() => {
+    if (!payload) return [] as { year: number; principal: number; interest: number }[];
+    const today = parseDate(payload.report_date) || new Date();
+    const maxMonths = Math.max(0, ...trackAmortizations.map(s => s.length));
+    if (maxMonths === 0) return [];
+    // Pre-compute cumulative-interest-from-end per track for O(1) lookups
+    const futureInterestByTrack: number[][] = trackAmortizations.map(steps => {
+      const fi = new Array(steps.length + 1).fill(0);
+      for (let m = steps.length - 1; m >= 0; m--) fi[m] = fi[m + 1] + steps[m].interest;
+      return fi;
+    });
+    const out: { year: number; principal: number; interest: number }[] = [];
+    for (let m = 0; m <= maxMonths; m += 6) {
+      let principal = 0, interest = 0;
+      trackAmortizations.forEach((steps, idx) => {
+        if (steps.length === 0) return;
+        const stepIdx = Math.min(m, steps.length) - 1;
+        const balance = stepIdx < 0
+          ? (tracksEnriched[idx]?._balance || 0)
+          : (steps[stepIdx]?.balance || 0);
+        principal += balance;
+        const fi = futureInterestByTrack[idx];
+        interest += fi[Math.min(m, fi.length - 1)] || 0;
+      });
+      const d = new Date(today.getFullYear(), today.getMonth() + m, 1);
+      out.push({
+        year: d.getFullYear() + d.getMonth() / 12,
+        principal: Math.round(principal),
+        interest: Math.round(interest),
+      });
+      if (principal <= 0 && interest <= 0) break;
+    }
+    return out;
+  }, [payload, trackAmortizations, tracksEnriched]);
 
   // ============ Monthly amortization schedule (forecast across all tracks) ============
   const amortSchedule = useMemo(() => {
     if (!payload) return [] as { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[];
     const today = parseDate(payload.report_date) || new Date();
-    const states = tracksEnriched.map(t => ({
-      balance: t._balance,
-      rate: t._rate,
-      monthsLeft: t._months,
-      pmt: t._pmt,
-    }));
     const HE_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
     const out: { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[] = [];
-    const maxMonths = Math.max(0, ...states.map(s => s.monthsLeft));
+    const maxMonths = Math.max(0, ...trackAmortizations.map(s => s.length));
     for (let m = 1; m <= maxMonths; m++) {
       let interestSum = 0, principalSum = 0, balSum = 0;
-      states.forEach(s => {
-        if (s.monthsLeft > 0 && s.balance > 0 && s.rate != null) {
-          const r = (s.rate / 100) / 12;
-          const interest = s.balance * r;
-          const principal = Math.max(0, Math.min(s.balance, s.pmt - interest));
-          s.balance = Math.max(0, s.balance - principal);
-          s.monthsLeft--;
-          interestSum += interest;
-          principalSum += principal;
+      trackAmortizations.forEach(steps => {
+        const step = steps[m - 1];
+        if (step) {
+          interestSum += step.interest;
+          principalSum += step.principal;
+          balSum += step.balance;
         }
-        balSum += s.balance;
       });
       const payment = interestSum + principalSum;
       if (payment <= 0) break;
@@ -900,7 +938,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       });
     }
     return out;
-  }, [payload, tracksEnriched]);
+  }, [payload, trackAmortizations]);
+
 
 
   // ============ Render ============
