@@ -191,6 +191,7 @@ const normalizeLoan = (loan: any): MortgageLoan => {
     balance: t.balance ?? t.track_balance,
     original_amount: t.original_amount ?? t.track_original_amount,
     interest_rate_percent: t.interest_rate_percent ?? t.annual_interest_rate_percent,
+    first_payment_date: t.first_payment_date || loan.start_date,
   }));
   return {
     ...loan,
