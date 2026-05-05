@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { useMarketData } from "@/lib/marketData";
 
 // =================== Types ===================
 interface MortgageTrack {
