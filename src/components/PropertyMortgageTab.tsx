@@ -1172,34 +1172,45 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
               <CardContent>
                 <div className="h-64">
                   <ResponsiveContainer>
-                    <LineChart data={amortization}>
+                    <AreaChart data={debtAmortizationSeries}>
+                      <defs>
+                        <linearGradient id="grad-principal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(200, 75%, 50%)" stopOpacity={0.85} />
+                          <stop offset="100%" stopColor="hsl(200, 75%, 50%)" stopOpacity={0.4} />
+                        </linearGradient>
+                        <linearGradient id="grad-interest" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(15, 85%, 55%)" stopOpacity={0.75} />
+                          <stop offset="100%" stopColor="hsl(15, 85%, 55%)" stopOpacity={0.3} />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="year" tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(0)} />
                       <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
-                      <RTooltip formatter={(v: number) => fmtILS(v)} labelFormatter={(v: number) => `שנה ${v.toFixed(1)}`} />
-                      <Line
-                        type="monotone"
-                        dataKey={(d: any) => d.type === "history" ? d.balance : null}
-                        name="היסטוריה"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={false}
-                        connectNulls
+                      <RTooltip
+                        formatter={(v: number, name: string) => [fmtILS(v), name]}
+                        labelFormatter={(v: number) => `שנה ${v.toFixed(1)}`}
                       />
-                      <Line
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Area
                         type="monotone"
-                        dataKey={(d: any) => d.type === "forecast" ? d.balance : null}
-                        name="תחזית"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        strokeDasharray="4 4"
-                        dot={false}
-                        connectNulls
+                        dataKey="principal"
+                        stackId="debt"
+                        name="יתרת קרן"
+                        stroke="hsl(200, 75%, 50%)"
+                        fill="url(#grad-principal)"
                       />
-                    </LineChart>
+                      <Area
+                        type="monotone"
+                        dataKey="interest"
+                        stackId="debt"
+                        name='יתרת ריבית עתידית'
+                        stroke="hsl(15, 85%, 55%)"
+                        fill="url(#grad-interest)"
+                      />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1 text-center">קו רציף = היסטוריה • מקטע לעתיד = תחזית</p>
+                <p className="text-xs text-muted-foreground mt-1 text-center">קרן (תחתון, כחול) + ריבית עתידית (עליון, כתום) — סה"כ עלות ההלוואה לאורך זמן</p>
               </CardContent>
             </Card>
 
