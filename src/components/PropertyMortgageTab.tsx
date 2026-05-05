@@ -1036,6 +1036,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     label="ריבית בנק ישראל"
                     value={market ? `${market.boiRate.toFixed(2)}%` : "…"}
                     sub={market ? `ריבית פריים: ${market.primeRate.toFixed(2)}%` : ""}
+                    personal={personalRates.prime ? `המסלול שלך: ${personalRates.prime}` : null}
                     fetchedAt={market?.fetchedAt}
                   />
                   <MacroCard
@@ -1045,12 +1046,37 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     fetchedAt={market?.fetchedAt}
                   />
                   <MacroCard
-                    label='מדד תשואות האג"ח'
+                    label='מדד תשואות האג"ח / עוגן'
                     value={market ? `${market.bondYield.toFixed(2)}%` : "…"}
                     sub="תשואה ממוצעת"
+                    personal={personalRates.variable ? `המסלול שלך: ${personalRates.variable}` : null}
                     fetchedAt={market?.fetchedAt}
                   />
                 </div>
+
+                {/* "What If" simulation control — variable-rate station re-pricing */}
+                <Card className="mt-3 border-primary/20 bg-primary/5">
+                  <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex-1">
+                      <Label htmlFor="anchor-rate" className="text-sm font-semibold">
+                        ריבית עוגן נוכחית בשוק (%)
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        מתעדכן ידנית — משפיע על תחזית מסלולים משתנים מהתחנה הקרובה ואילך.
+                        החזר חדש = עוגן + מרווח קבוע (מתוך נתוני הבנק).
+                      </p>
+                    </div>
+                    <Input
+                      id="anchor-rate"
+                      type="number"
+                      step="0.05"
+                      value={marketAnchorRate}
+                      onChange={(e) => setMarketAnchorRate(parseFloat(e.target.value) || 0)}
+                      className="w-32 text-center font-mono text-base"
+                      dir="ltr"
+                    />
+                  </CardContent>
+                </Card>
 
                 {penalty > 0 && (
                   <Card className="border-amber-500/40 bg-amber-500/5 mt-4">
