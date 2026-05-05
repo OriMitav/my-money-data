@@ -655,23 +655,35 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     tracksEnriched.forEach((t, idx) => {
       const end = parseDate(t.end_date);
       const endY = end ? end.getFullYear() : startY;
+      const endM = end ? end.getMonth() : 11; // 0-indexed month of end
       const label = CAT_LABEL[t._category] || "אחר";
       const proj = trackProjections.get(idx);
-      const stationYear = proj ? proj.stationDate.getFullYear() : null;
+      const stationDate = proj ? proj.stationDate : null;
+      const stationY = stationDate ? stationDate.getFullYear() : null;
+      const stationM = stationDate ? stationDate.getMonth() : null; // 0-indexed
       const newPmt = proj
         ? spitzerPMT(t._balance, proj.newRate, Math.max(1, t._months - proj.stationMonth))
         : t._pmt;
       for (let y = startY; y <= Math.min(endY, horizon); y++) {
-        const pmt = stationYear != null && y >= stationYear ? newPmt : t._pmt;
-        rows[y][label] = (rows[y][label] || 0) + (pmt || 0);
-        rows[y].total += (pmt || 0);
+        // Month range within this year that the track is active
+        const firstActiveMonth = y === startY ? today.getMonth() : 0;
+        const lastActiveMonth = y === endY ? endM : 11;
+        let sum = 0;
+        for (let m = firstActiveMonth; m <= lastActiveMonth; m++) {
+          const usesNew = stationY != null && (y > stationY || (y === stationY && m >= (stationM ?? 0)));
+          sum += usesNew ? newPmt : t._pmt;
+        }
+        const monthsActive = Math.max(0, lastActiveMonth - firstActiveMonth + 1);
+        const avg = monthsActive > 0 ? sum / monthsActive : 0;
+        rows[y][label] = (rows[y][label] || 0) + avg;
+        rows[y].total += avg;
       }
       if (end && endY <= horizon && endY + 1 <= horizon && rows[endY + 1]) {
         rows[endY + 1]._changes.push(`סיום מסלול ${t.track_name || t._category} (${endY})`);
       }
-      if (proj && rows[stationYear!]) {
-        rows[stationYear!]._changes.push(
-          `התאמת ריבית משתנה (${t.track_name || ""}) לפי עוגן ${marketAnchorRate.toFixed(2)}% + מרווח ${proj.margin.toFixed(2)}% = ${proj.newRate.toFixed(2)}%`
+      if (proj && stationY != null && rows[stationY]) {
+        rows[stationY]._changes.push(
+          `התאמת ריבית משתנה (${t.track_name || ""}) ב-${stationDate!.toLocaleDateString("he-IL")} לפי עוגן ${marketAnchorRate.toFixed(2)}% + מרווח ${proj.margin.toFixed(2)}% = ${proj.newRate.toFixed(2)}%`
         );
       }
     });
