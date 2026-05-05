@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, BarChart, Bar, LabelList
+  PieChart, Pie, Cell, Legend, BarChart, Bar, LabelList, AreaChart, Area
 } from "recharts";
 import {
   Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity,
