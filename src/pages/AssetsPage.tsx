@@ -392,11 +392,11 @@ export default function AssetsPage() {
 
   const cashflowTotals = cashflowTotalsByProperty.get(prop.id) || { income: 0, expense: 0, balance: 0 };
 
-  // Property profitability: Market Value - Capital Gains Tax (25% on gain) + Cumulative Cashflow Balance
-  const capitalGain = marketValue !== null ? Math.max(0, marketValue - prop.purchase_price) : 0;
-  const capitalGainsTax = capitalGain * 0.25;
+  // Property profitability (updated formula):
+  //   Market Value − total_balance_without_fees − total_early_repayment_fees
+  const mortInfo = mortgageByProperty.get(prop.id) || { balanceWithoutFees: 0, earlyRepaymentFees: 0 };
   const profitability = marketValue !== null
-    ? marketValue - capitalGainsTax + cashflowTotals.balance
+    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees
     : null;
 
   return (
