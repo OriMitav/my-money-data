@@ -130,6 +130,37 @@ export default function AssetsPage() {
     return map;
   }, [cashflowRowsAll]);
 
+  // Latest mortgage snapshot per property — for the profitability formula.
+  const { data: mortgageRowsAll = [] } = useQuery({
+    queryKey: ["mortgage_snapshots_all_for_totals"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("mortgage_snapshots")
+        .select("property_id, report_date, total_balance_without_fees, payload")
+        .order("report_date", { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+    enabled: !!user,
+  });
+  const mortgageByProperty = useMemo(() => {
+    const map = new Map<string, { balanceWithoutFees: number; earlyRepaymentFees: number }>();
+    mortgageRowsAll.forEach((r: any) => {
+      if (map.has(r.property_id)) return; // already have latest (sorted desc)
+      let fees = 0;
+      const loans = r?.payload?.loans || [];
+      loans.forEach((l: any) => {
+        const bb = l.balance_breakdown || l;
+        fees += Number(bb.total_early_repayment_fees) || 0;
+      });
+      map.set(r.property_id, {
+        balanceWithoutFees: Number(r.total_balance_without_fees) || 0,
+        earlyRepaymentFees: fees,
+      });
+    });
+    return map;
+  }, [mortgageRowsAll]);
+
   const createMutation = useMutation({
     mutationFn: async (f: typeof form) => {
       const { error } = await supabase.from("properties").insert({ ...f, user_id: user!.id });
@@ -361,11 +392,11 @@ export default function AssetsPage() {
 
   const cashflowTotals = cashflowTotalsByProperty.get(prop.id) || { income: 0, expense: 0, balance: 0 };
 
-  // Property profitability: Market Value - Capital Gains Tax (25% on gain) + Cumulative Cashflow Balance
-  const capitalGain = marketValue !== null ? Math.max(0, marketValue - prop.purchase_price) : 0;
-  const capitalGainsTax = capitalGain * 0.25;
+  // Property profitability (updated formula):
+  //   Market Value − total_balance_without_fees − total_early_repayment_fees
+  const mortInfo = mortgageByProperty.get(prop.id) || { balanceWithoutFees: 0, earlyRepaymentFees: 0 };
   const profitability = marketValue !== null
-    ? marketValue - capitalGainsTax + cashflowTotals.balance
+    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees
     : null;
 
   return (
@@ -503,12 +534,12 @@ export default function AssetsPage() {
                 <PopoverContent className="w-72 text-xs space-y-1.5" dir="rtl" align="end">
                   <div className="font-semibold text-sm mb-1">חישוב הרווחיות</div>
                   <div className="flex justify-between"><span>שווי שוק</span><span className="font-mono">{marketValue !== null ? fmt(marketValue) : "—"}</span></div>
-                  <div className="flex justify-between"><span>מחיר קנייה</span><span className="font-mono">{fmt(prop.purchase_price)}</span></div>
-                  <div className="flex justify-between"><span>רווח הון</span><span className="font-mono">{fmt(capitalGain)}</span></div>
-                  <div className="flex justify-between text-red-600"><span>− מס שבח (25%)</span><span className="font-mono">{fmt(capitalGainsTax)}</span></div>
-                  <div className="flex justify-between"><span>+ מאזן תזרים מצטבר</span><span className="font-mono">{fmt(cashflowTotals.balance)}</span></div>
-                  <div className="border-t pt-1.5 flex justify-between font-semibold"><span>רווחיות נטו</span><span className="font-mono">{profitability !== null ? fmt(profitability) : "—"}</span></div>
-                  <div className="text-[10px] text-muted-foreground pt-1">נוסחה: שווי שוק − מס שבח + מאזן תזרים</div>
+                  <div className="flex justify-between text-red-600"><span>− קרן (יתרה ללא קנסות)</span><span className="font-mono">{fmt(mortInfo.balanceWithoutFees)}</span></div>
+                  <div className="flex justify-between text-red-600"><span>− קנסות יציאה</span><span className="font-mono">{fmt(mortInfo.earlyRepaymentFees)}</span></div>
+                  <div className="border-t pt-1.5 flex justify-between font-semibold"><span>רווח נטו</span><span className="font-mono">{profitability !== null ? fmt(profitability) : "—"}</span></div>
+                  <div className="text-[10px] text-muted-foreground pt-1">
+                    שווי נכס פחות קרן ({fmt(mortInfo.balanceWithoutFees)}) פחות קנסות יציאה ({fmt(mortInfo.earlyRepaymentFees)})
+                  </div>
                 </PopoverContent>
               </Popover>
             </div>

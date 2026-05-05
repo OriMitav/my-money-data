@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RTooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, BarChart, Bar, LabelList
+  PieChart, Pie, Cell, Legend, BarChart, Bar, LabelList, AreaChart, Area
 } from "recharts";
 import {
   Wallet, Calendar, TrendingUp, AlertCircle, FileJson, Trash2, Loader2, Activity,
@@ -261,6 +263,53 @@ const spitzerPMT = (balance: number, annualRatePct: number, months: number) => {
   return (balance * r) / (1 - Math.pow(1 + r, -months));
 };
 
+// Extract fixed margin (e.g. 2.80) from rate strings like "עוגן + % 2.80",
+// "עוגן + 2.80%", "Prime + 0.5%", or "פריים - 0.5%".
+const extractMargin = (s?: string | null): number | null => {
+  if (!s) return null;
+  const m = /([+\-])\s*%?\s*(\d+(?:\.\d+)?)\s*%?/.exec(String(s));
+  if (!m) return null;
+  const sign = m[1] === "-" ? -1 : 1;
+  return sign * parseFloat(m[2]);
+};
+
+// Walk a single track month-by-month. Optionally apply a rate change at a
+// "station" (variable adjustment) date and return per-month interest/principal.
+interface TrackStep {
+  month: number;          // months since today
+  interest: number;
+  principal: number;
+  payment: number;
+  balance: number;
+}
+const amortizeTrack = (
+  startBalance: number,
+  initialRate: number | null,
+  totalMonths: number,
+  initialPmt: number,
+  station?: { month: number; newRate: number } | null,
+): TrackStep[] => {
+  const out: TrackStep[] = [];
+  let balance = startBalance;
+  let rate = initialRate ?? 0;
+  let pmt = initialPmt;
+  for (let m = 1; m <= totalMonths; m++) {
+    if (station && m === station.month) {
+      rate = station.newRate;
+      const remaining = totalMonths - m + 1;
+      pmt = spitzerPMT(balance, rate, remaining);
+    }
+    if (balance <= 0 || pmt <= 0) break;
+    const r = (rate / 100) / 12;
+    const interest = r > 0 ? balance * r : 0;
+    const principal = Math.max(0, Math.min(balance, pmt - interest));
+    balance = Math.max(0, balance - principal);
+    out.push({ month: m, interest, principal, payment: interest + principal, balance });
+    if (balance <= 0) break;
+  }
+  return out;
+};
+
 // =================== Component ===================
 export default function PropertyMortgageTab({ propertyId }: { propertyId: string }) {
   const { user } = useAuth();
@@ -269,6 +318,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   const [openDialog, setOpenDialog] = useState(false);
   const [jsonText, setJsonText] = useState("");
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
+  const [marketAnchorRate, setMarketAnchorRate] = useState<number>(3.0);
 
   const { data: snapshots = [], isLoading } = useQuery({
     queryKey: ["mortgage_snapshots", propertyId],
@@ -535,7 +585,51 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
   }, [payload, snapshots, tracksEnriched]);
 
   // Stacked monthly payment over years — grouped by category, with predictive
-  // adjustment for variable tracks based on the live bond yield index.
+  // ============ Variable-track "station" projections ============
+  // For each variable track, locate the next interest-change "station":
+  //   • prefer the explicit next_interest_change_date from JSON
+  //   • else 5y anniversary of first_payment_date
+  // Then derive new rate = current_market_anchor_rate + extracted_margin
+  // (margin is parsed out of annual_interest_rate_string e.g. "עוגן + % 2.80").
+  const trackProjections = useMemo(() => {
+    if (!payload) return new Map<number, { stationDate: Date; stationMonth: number; newRate: number; margin: number; oldRate: number | null }>();
+    const today = parseDate(payload.report_date) || new Date();
+    const out = new Map<number, { stationDate: Date; stationMonth: number; newRate: number; margin: number; oldRate: number | null }>();
+    tracksEnriched.forEach((t, idx) => {
+      if (t._category !== "variable") return;
+      const explicit = parseDate((t as any).next_interest_change_date);
+      let station: Date | null = explicit;
+      if (!station) {
+        const start = parseDate(t.first_payment_date);
+        if (!start) return;
+        const c = new Date(start);
+        while (c <= today) c.setFullYear(c.getFullYear() + 5);
+        station = c;
+      }
+      if (!station || station <= today) return;
+      const margin = extractMargin((t as any).annual_interest_rate_string) ?? 0;
+      const newRate = marketAnchorRate + margin;
+      out.set(idx, {
+        stationDate: station,
+        stationMonth: monthsBetween(today, station),
+        newRate,
+        margin,
+        oldRate: t._rate,
+      });
+    });
+    return out;
+  }, [payload, tracksEnriched, marketAnchorRate]);
+
+  // ============ Per-track full amortization (with stations applied) ============
+  const trackAmortizations = useMemo(() => {
+    return tracksEnriched.map((t, idx) => {
+      const proj = trackProjections.get(idx);
+      const station = proj ? { month: proj.stationMonth, newRate: proj.newRate } : null;
+      return amortizeTrack(t._balance, t._rate, t._months, t._pmt, station);
+    });
+  }, [tracksEnriched, trackProjections]);
+
+  // ============ Stacked monthly payment over years (categories) ============
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
     const today = parseDate(payload.report_date) || new Date();
@@ -551,28 +645,6 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     const order = ["prime", "fixed", "variable", "cpi"].filter(c => presentSet.has(c));
     const keys = order.map(c => CAT_LABEL[c]);
 
-    // For each variable track, compute the next adjustment year (5y anniversary
-    // of first_payment_date that is in the future). After that year, use the
-    // current bond yield as the projected rate to recompute the PMT.
-    const variableProjection = new Map<number, { year: number; oldPmt: number; newPmt: number }>();
-    const projectedPmtByTrack = new Map<number, { changeYear: number | null; basePmt: number; newPmt: number }>();
-    tracksEnriched.forEach((t, idx) => {
-      if (t._category !== "variable") return;
-      const start = parseDate(t.first_payment_date);
-      if (!start) return;
-      const candidate = new Date(start);
-      while (candidate <= today) candidate.setFullYear(candidate.getFullYear() + 5);
-      const changeYear = candidate.getFullYear();
-      const end = parseDate(t.end_date);
-      const monthsFromChange = end ? monthsBetween(candidate, end) : 0;
-      const projectedRate = market?.bondYield ?? t._rate ?? 0;
-      const newPmt = monthsFromChange > 0 && t._balance > 0
-        ? spitzerPMT(t._balance, projectedRate, monthsFromChange)
-        : t._pmt;
-      projectedPmtByTrack.set(idx, { changeYear, basePmt: t._pmt, newPmt });
-      variableProjection.set(idx, { year: changeYear, oldPmt: t._pmt, newPmt });
-    });
-
     const rows: Record<number, any> = {};
     const startY = today.getFullYear();
     for (let y = startY; y <= horizon; y++) {
@@ -583,18 +655,23 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       const end = parseDate(t.end_date);
       const endY = end ? end.getFullYear() : startY;
       const label = CAT_LABEL[t._category] || "אחר";
-      const proj = projectedPmtByTrack.get(idx);
+      const proj = trackProjections.get(idx);
+      const stationYear = proj ? proj.stationDate.getFullYear() : null;
+      const newPmt = proj
+        ? spitzerPMT(t._balance, proj.newRate, Math.max(1, t._months - proj.stationMonth))
+        : t._pmt;
       for (let y = startY; y <= Math.min(endY, horizon); y++) {
-        const pmt = proj && y >= proj.changeYear! ? proj.newPmt : t._pmt;
+        const pmt = stationYear != null && y >= stationYear ? newPmt : t._pmt;
         rows[y][label] = (rows[y][label] || 0) + (pmt || 0);
         rows[y].total += (pmt || 0);
       }
-      // Mark end-of-track as a change
       if (end && endY <= horizon && endY + 1 <= horizon && rows[endY + 1]) {
         rows[endY + 1]._changes.push(`סיום מסלול ${t.track_name || t._category} (${endY})`);
       }
-      if (proj && rows[proj.changeYear!]) {
-        rows[proj.changeYear!]._changes.push(`התאמת ריבית משתנה (${t.track_name || ""}) לפי תשואת אג"ח ${(market?.bondYield ?? 0).toFixed(2)}%`);
+      if (proj && rows[stationYear!]) {
+        rows[stationYear!]._changes.push(
+          `התאמת ריבית משתנה (${t.track_name || ""}) לפי עוגן ${marketAnchorRate.toFixed(2)}% + מרווח ${proj.margin.toFixed(2)}% = ${proj.newRate.toFixed(2)}%`
+        );
       }
     });
     const out = Object.values(rows)
@@ -605,14 +682,14 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
         return o;
       })
       .filter((r: any, _i, arr) => r.total > 0 || arr[0].year === r.year);
-    // Flag delta vs previous row
     out.forEach((r, i) => {
       const prev = i > 0 ? out[i - 1] : null;
       r._delta = prev ? r.total - prev.total : 0;
       r._flagged = !!prev && r.total !== prev.total;
     });
     return { rows: out, keys };
-  }, [payload, tracksEnriched, market]);
+  }, [payload, tracksEnriched, trackProjections, marketAnchorRate]);
+
 
   // ============ Track Mix donut data ============
   const COLORS = {
@@ -758,57 +835,95 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
 
   // Payment history (actuals from recent_payments) + 24-month forecast based on current track PMTs
   const paymentHistoryAndForecast = useMemo(() => {
-    if (!payload) return [] as { label: string; actual?: number; forecast?: number }[];
-    const monthlyForecast = totalPMT;
+    if (!payload) return [] as { label: string; actual?: number; forecastPrincipal?: number; forecastInterest?: number; forecastTotal?: number }[];
     const today = parseDate(payload.report_date) || new Date();
-    const out: { label: string; actual?: number; forecast?: number }[] = [];
+    const out: { label: string; actual?: number; forecastPrincipal?: number; forecastInterest?: number; forecastTotal?: number }[] = [];
     paymentHistory.forEach(p => {
       out.push({
         label: `${String(p.date.getMonth() + 1).padStart(2, "0")}/${String(p.date.getFullYear()).slice(-2)}`,
         actual: Math.round(p.amount),
       });
     });
-    // forecast 24 months ahead from the month after the last actual / report_date
+    // Forecast 24 months ahead — sum each track's monthly principal/interest
+    // from trackAmortizations (which already accounts for station rate changes).
     const last = paymentHistory.length
       ? new Date(paymentHistory[paymentHistory.length - 1].date)
       : new Date(today);
-    for (let i = 1; i <= 24; i++) {
+    const offsetMonths = monthsBetween(today, last) + 1; // first forecast month index in trackAmortizations
+    for (let i = 0; i < 24; i++) {
       const d = new Date(last);
-      d.setMonth(d.getMonth() + i);
+      d.setMonth(d.getMonth() + i + 1);
+      const mIdx = offsetMonths + i; // 1-based month relative to "today"
+      let pSum = 0, iSum = 0;
+      trackAmortizations.forEach(steps => {
+        const step = steps[mIdx - 1];
+        if (step) { pSum += step.principal; iSum += step.interest; }
+      });
+      const total = pSum + iSum;
       out.push({
         label: `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`,
-        forecast: Math.round(monthlyForecast),
+        forecastPrincipal: Math.round(pSum),
+        forecastInterest: Math.round(iSum),
+        forecastTotal: Math.round(total),
       });
     }
     return out;
-  }, [payload, paymentHistory, totalPMT]);
+  }, [payload, paymentHistory, trackAmortizations]);
+
+  // ============ Stacked-area debt amortization series ============
+  // For each future month: remaining principal + remaining future interest
+  // (sum of all interest payments still to be made). Sampled every 6 months.
+  const debtAmortizationSeries = useMemo(() => {
+    if (!payload) return [] as { year: number; principal: number; interest: number }[];
+    const today = parseDate(payload.report_date) || new Date();
+    const maxMonths = Math.max(0, ...trackAmortizations.map(s => s.length));
+    if (maxMonths === 0) return [];
+    // Pre-compute cumulative-interest-from-end per track for O(1) lookups
+    const futureInterestByTrack: number[][] = trackAmortizations.map(steps => {
+      const fi = new Array(steps.length + 1).fill(0);
+      for (let m = steps.length - 1; m >= 0; m--) fi[m] = fi[m + 1] + steps[m].interest;
+      return fi;
+    });
+    const out: { year: number; principal: number; interest: number }[] = [];
+    for (let m = 0; m <= maxMonths; m += 6) {
+      let principal = 0, interest = 0;
+      trackAmortizations.forEach((steps, idx) => {
+        if (steps.length === 0) return;
+        const stepIdx = Math.min(m, steps.length) - 1;
+        const balance = stepIdx < 0
+          ? (tracksEnriched[idx]?._balance || 0)
+          : (steps[stepIdx]?.balance || 0);
+        principal += balance;
+        const fi = futureInterestByTrack[idx];
+        interest += fi[Math.min(m, fi.length - 1)] || 0;
+      });
+      const d = new Date(today.getFullYear(), today.getMonth() + m, 1);
+      out.push({
+        year: d.getFullYear() + d.getMonth() / 12,
+        principal: Math.round(principal),
+        interest: Math.round(interest),
+      });
+      if (principal <= 0 && interest <= 0) break;
+    }
+    return out;
+  }, [payload, trackAmortizations, tracksEnriched]);
 
   // ============ Monthly amortization schedule (forecast across all tracks) ============
   const amortSchedule = useMemo(() => {
     if (!payload) return [] as { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[];
     const today = parseDate(payload.report_date) || new Date();
-    const states = tracksEnriched.map(t => ({
-      balance: t._balance,
-      rate: t._rate,
-      monthsLeft: t._months,
-      pmt: t._pmt,
-    }));
     const HE_MONTHS = ["ינואר","פברואר","מרץ","אפריל","מאי","יוני","יולי","אוגוסט","ספטמבר","אוקטובר","נובמבר","דצמבר"];
     const out: { label: string; principal: number; interest: number; payment: number; principalPct: number; balance: number }[] = [];
-    const maxMonths = Math.max(0, ...states.map(s => s.monthsLeft));
+    const maxMonths = Math.max(0, ...trackAmortizations.map(s => s.length));
     for (let m = 1; m <= maxMonths; m++) {
       let interestSum = 0, principalSum = 0, balSum = 0;
-      states.forEach(s => {
-        if (s.monthsLeft > 0 && s.balance > 0 && s.rate != null) {
-          const r = (s.rate / 100) / 12;
-          const interest = s.balance * r;
-          const principal = Math.max(0, Math.min(s.balance, s.pmt - interest));
-          s.balance = Math.max(0, s.balance - principal);
-          s.monthsLeft--;
-          interestSum += interest;
-          principalSum += principal;
+      trackAmortizations.forEach(steps => {
+        const step = steps[m - 1];
+        if (step) {
+          interestSum += step.interest;
+          principalSum += step.principal;
+          balSum += step.balance;
         }
-        balSum += s.balance;
       });
       const payment = interestSum + principalSum;
       if (payment <= 0) break;
@@ -823,8 +938,26 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       });
     }
     return out;
-  }, [payload, tracksEnriched]);
+  }, [payload, trackAmortizations]);
 
+
+
+  // ============ Personalized rate strings (for macro KPI cards) ============
+  const personalRates = useMemo(() => {
+    const findByCat = (cat: string) =>
+      tracksEnriched.find(t => t._category === cat && t._rate != null);
+    const fmtPersonal = (t: any) => {
+      const str = (t as any).annual_interest_rate_string;
+      const r = t._rate != null ? `${t._rate.toFixed(2)}%` : "—";
+      return str ? `${r} (${str})` : r;
+    };
+    const prime = findByCat("prime");
+    const variable = findByCat("variable");
+    return {
+      prime: prime ? fmtPersonal(prime) : null,
+      variable: variable ? fmtPersonal(variable) : null,
+    };
+  }, [tracksEnriched]);
 
   // ============ Render ============
   return (
@@ -903,6 +1036,7 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     label="ריבית בנק ישראל"
                     value={market ? `${market.boiRate.toFixed(2)}%` : "…"}
                     sub={market ? `ריבית פריים: ${market.primeRate.toFixed(2)}%` : ""}
+                    personal={personalRates.prime ? `המסלול שלך: ${personalRates.prime}` : null}
                     fetchedAt={market?.fetchedAt}
                   />
                   <MacroCard
@@ -912,12 +1046,37 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     fetchedAt={market?.fetchedAt}
                   />
                   <MacroCard
-                    label='מדד תשואות האג"ח'
+                    label='מדד תשואות האג"ח / עוגן'
                     value={market ? `${market.bondYield.toFixed(2)}%` : "…"}
                     sub="תשואה ממוצעת"
+                    personal={personalRates.variable ? `המסלול שלך: ${personalRates.variable}` : null}
                     fetchedAt={market?.fetchedAt}
                   />
                 </div>
+
+                {/* "What If" simulation control — variable-rate station re-pricing */}
+                <Card className="mt-3 border-primary/20 bg-primary/5">
+                  <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex-1">
+                      <Label htmlFor="anchor-rate" className="text-sm font-semibold">
+                        ריבית עוגן נוכחית בשוק (%)
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        מתעדכן ידנית — משפיע על תחזית מסלולים משתנים מהתחנה הקרובה ואילך.
+                        החזר חדש = עוגן + מרווח קבוע (מתוך נתוני הבנק).
+                      </p>
+                    </div>
+                    <Input
+                      id="anchor-rate"
+                      type="number"
+                      step="0.05"
+                      value={marketAnchorRate}
+                      onChange={(e) => setMarketAnchorRate(parseFloat(e.target.value) || 0)}
+                      className="w-32 text-center font-mono text-base"
+                      dir="ltr"
+                    />
+                  </CardContent>
+                </Card>
 
                 {penalty > 0 && (
                   <Card className="border-amber-500/40 bg-amber-500/5 mt-4">
@@ -951,14 +1110,36 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                       <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(1)}K`} />
-                      <RTooltip formatter={(v: number, name: string) => [fmtILS(Number(v)), name === "actual" ? "בפועל" : "תחזית"]} />
-                      <Legend wrapperStyle={{ fontSize: 11 }} formatter={(v) => (v === "actual" ? "בפועל" : "תחזית")} />
-                      <Bar dataKey="actual" fill="hsl(200, 75%, 50%)" name="actual" />
-                      <Bar dataKey="forecast" fill="hsl(200, 75%, 50%)" fillOpacity={0.35} name="forecast" />
+                      <RTooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const row: any = payload[0].payload;
+                          const total = row.actual ?? row.forecastTotal ?? 0;
+                          return (
+                            <div dir="rtl" className="rounded-md border bg-background shadow-md p-3 text-xs space-y-1 min-w-[180px]">
+                              <div className="font-semibold border-b pb-1">{label}</div>
+                              {row.actual != null && (
+                                <div className="flex justify-between"><span>בפועל</span><span className="font-mono">{fmtILS(row.actual)}</span></div>
+                              )}
+                              {row.forecastPrincipal != null && (
+                                <>
+                                  <div className="flex justify-between"><span style={{ color: "hsl(150, 60%, 40%)" }}>תשלום קרן</span><span className="font-mono">{fmtILS(row.forecastPrincipal)}</span></div>
+                                  <div className="flex justify-between"><span style={{ color: "hsl(15, 85%, 55%)" }}>תשלום ריבית</span><span className="font-mono">{fmtILS(row.forecastInterest || 0)}</span></div>
+                                </>
+                              )}
+                              <div className="flex justify-between border-t pt-1 font-semibold"><span>סה"כ החזר</span><span className="font-mono">{fmtILS(total)}</span></div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="actual" stackId="hist" fill="hsl(200, 75%, 50%)" name="בפועל" />
+                      <Bar dataKey="forecastPrincipal" stackId="fc" fill="hsl(150, 60%, 40%)" name="תשלום קרן (תחזית)" />
+                      <Bar dataKey="forecastInterest" stackId="fc" fill="hsl(15, 85%, 55%)" name="תשלום ריבית (תחזית)" />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1 text-center">עמודות מלאות = בפועל • שקופות = תחזית</p>
+                <p className="text-xs text-muted-foreground mt-1 text-center">היסטוריה (כחול) • תחזית מפוצלת לקרן (ירוק) וריבית (כתום)</p>
               </CardContent>
             </Card>
             <Card>
@@ -991,34 +1172,45 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
               <CardContent>
                 <div className="h-64">
                   <ResponsiveContainer>
-                    <LineChart data={amortization}>
+                    <AreaChart data={debtAmortizationSeries}>
+                      <defs>
+                        <linearGradient id="grad-principal" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(200, 75%, 50%)" stopOpacity={0.85} />
+                          <stop offset="100%" stopColor="hsl(200, 75%, 50%)" stopOpacity={0.4} />
+                        </linearGradient>
+                        <linearGradient id="grad-interest" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="hsl(15, 85%, 55%)" stopOpacity={0.75} />
+                          <stop offset="100%" stopColor="hsl(15, 85%, 55%)" stopOpacity={0.3} />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="year" tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(0)} />
                       <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
-                      <RTooltip formatter={(v: number) => fmtILS(v)} labelFormatter={(v: number) => `שנה ${v.toFixed(1)}`} />
-                      <Line
-                        type="monotone"
-                        dataKey={(d: any) => d.type === "history" ? d.balance : null}
-                        name="היסטוריה"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        dot={false}
-                        connectNulls
+                      <RTooltip
+                        formatter={(v: number, name: string) => [fmtILS(v), name]}
+                        labelFormatter={(v: number) => `שנה ${v.toFixed(1)}`}
                       />
-                      <Line
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Area
                         type="monotone"
-                        dataKey={(d: any) => d.type === "forecast" ? d.balance : null}
-                        name="תחזית"
-                        stroke="hsl(var(--primary))"
-                        strokeWidth={2}
-                        strokeDasharray="4 4"
-                        dot={false}
-                        connectNulls
+                        dataKey="principal"
+                        stackId="debt"
+                        name="יתרת קרן"
+                        stroke="hsl(200, 75%, 50%)"
+                        fill="url(#grad-principal)"
                       />
-                    </LineChart>
+                      <Area
+                        type="monotone"
+                        dataKey="interest"
+                        stackId="debt"
+                        name='יתרת ריבית עתידית'
+                        stroke="hsl(15, 85%, 55%)"
+                        fill="url(#grad-interest)"
+                      />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1 text-center">קו רציף = היסטוריה • מקטע לעתיד = תחזית</p>
+                <p className="text-xs text-muted-foreground mt-1 text-center">קרן (תחתון, כחול) + ריבית עתידית (עליון, כתום) — סה"כ עלות ההלוואה לאורך זמן</p>
               </CardContent>
             </Card>
 
@@ -1466,7 +1658,7 @@ function KpiCard({ icon, label, value, sub }: { icon: React.ReactNode; label: st
   );
 }
 
-function MacroCard({ label, value, sub, fetchedAt }: { label: string; value: string; sub?: string; fetchedAt?: string }) {
+function MacroCard({ label, value, sub, personal, fetchedAt }: { label: string; value: string; sub?: string; personal?: string | null; fetchedAt?: string }) {
   return (
     <Card className="bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/60 dark:border-blue-900/40">
       <CardContent className="p-4">
@@ -1486,6 +1678,11 @@ function MacroCard({ label, value, sub, fetchedAt }: { label: string; value: str
         </div>
         <div className="text-xl sm:text-2xl font-bold tracking-tight">{value}</div>
         {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
+        {personal && (
+          <div className="text-[11px] text-muted-foreground mt-1.5 pt-1.5 border-t border-blue-200/50 dark:border-blue-900/40 truncate" title={personal}>
+            {personal}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
