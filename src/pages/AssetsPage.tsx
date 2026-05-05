@@ -130,6 +130,37 @@ export default function AssetsPage() {
     return map;
   }, [cashflowRowsAll]);
 
+  // Latest mortgage snapshot per property — for the profitability formula.
+  const { data: mortgageRowsAll = [] } = useQuery({
+    queryKey: ["mortgage_snapshots_all_for_totals"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("mortgage_snapshots")
+        .select("property_id, report_date, total_balance_without_fees, payload")
+        .order("report_date", { ascending: false });
+      if (error) throw error;
+      return data as any[];
+    },
+    enabled: !!user,
+  });
+  const mortgageByProperty = useMemo(() => {
+    const map = new Map<string, { balanceWithoutFees: number; earlyRepaymentFees: number }>();
+    mortgageRowsAll.forEach((r: any) => {
+      if (map.has(r.property_id)) return; // already have latest (sorted desc)
+      let fees = 0;
+      const loans = r?.payload?.loans || [];
+      loans.forEach((l: any) => {
+        const bb = l.balance_breakdown || l;
+        fees += Number(bb.total_early_repayment_fees) || 0;
+      });
+      map.set(r.property_id, {
+        balanceWithoutFees: Number(r.total_balance_without_fees) || 0,
+        earlyRepaymentFees: fees,
+      });
+    });
+    return map;
+  }, [mortgageRowsAll]);
+
   const createMutation = useMutation({
     mutationFn: async (f: typeof form) => {
       const { error } = await supabase.from("properties").insert({ ...f, user_id: user!.id });
