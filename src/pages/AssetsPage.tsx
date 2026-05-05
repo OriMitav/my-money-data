@@ -534,12 +534,12 @@ export default function AssetsPage() {
                 <PopoverContent className="w-72 text-xs space-y-1.5" dir="rtl" align="end">
                   <div className="font-semibold text-sm mb-1">חישוב הרווחיות</div>
                   <div className="flex justify-between"><span>שווי שוק</span><span className="font-mono">{marketValue !== null ? fmt(marketValue) : "—"}</span></div>
-                  <div className="flex justify-between"><span>מחיר קנייה</span><span className="font-mono">{fmt(prop.purchase_price)}</span></div>
-                  <div className="flex justify-between"><span>רווח הון</span><span className="font-mono">{fmt(capitalGain)}</span></div>
-                  <div className="flex justify-between text-red-600"><span>− מס שבח (25%)</span><span className="font-mono">{fmt(capitalGainsTax)}</span></div>
-                  <div className="flex justify-between"><span>+ מאזן תזרים מצטבר</span><span className="font-mono">{fmt(cashflowTotals.balance)}</span></div>
-                  <div className="border-t pt-1.5 flex justify-between font-semibold"><span>רווחיות נטו</span><span className="font-mono">{profitability !== null ? fmt(profitability) : "—"}</span></div>
-                  <div className="text-[10px] text-muted-foreground pt-1">נוסחה: שווי שוק − מס שבח + מאזן תזרים</div>
+                  <div className="flex justify-between text-red-600"><span>− קרן (יתרה ללא קנסות)</span><span className="font-mono">{fmt(mortInfo.balanceWithoutFees)}</span></div>
+                  <div className="flex justify-between text-red-600"><span>− קנסות יציאה</span><span className="font-mono">{fmt(mortInfo.earlyRepaymentFees)}</span></div>
+                  <div className="border-t pt-1.5 flex justify-between font-semibold"><span>רווח נטו</span><span className="font-mono">{profitability !== null ? fmt(profitability) : "—"}</span></div>
+                  <div className="text-[10px] text-muted-foreground pt-1">
+                    שווי נכס פחות קרן ({fmt(mortInfo.balanceWithoutFees)}) פחות קנסות יציאה ({fmt(mortInfo.earlyRepaymentFees)})
+                  </div>
                 </PopoverContent>
               </Popover>
             </div>
