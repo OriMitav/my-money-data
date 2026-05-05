@@ -393,10 +393,13 @@ export default function AssetsPage() {
   const cashflowTotals = cashflowTotalsByProperty.get(prop.id) || { income: 0, expense: 0, balance: 0 };
 
   // Property profitability (updated formula):
-  //   Market Value − total_balance_without_fees − total_early_repayment_fees + cumulative cashflow balance
+  //   Market Value − balance_without_fees − early_repayment_fees − capital_gains_tax + cumulative cashflow balance
+  // Israeli capital gains tax on real estate ("מס שבח") = 25% on the nominal profit (Market Value − Purchase Price).
   const mortInfo = mortgageByProperty.get(prop.id) || { balanceWithoutFees: 0, earlyRepaymentFees: 0 };
+  const capitalGain = marketValue !== null ? Math.max(0, marketValue - prop.purchase_price) : 0;
+  const capitalGainsTax = capitalGain * 0.25;
   const profitability = marketValue !== null
-    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees + cashflowTotals.balance
+    ? marketValue - mortInfo.balanceWithoutFees - mortInfo.earlyRepaymentFees - capitalGainsTax + cashflowTotals.balance
     : null;
 
   return (
