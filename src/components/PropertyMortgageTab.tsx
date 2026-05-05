@@ -1107,8 +1107,27 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                             <LabelList
                               dataKey="total"
                               position="top"
-                              formatter={(v: number) => (v ? fmtNum(Number(v)) : "")}
-                              style={{ fontSize: 10, fill: "hsl(var(--foreground))", fontWeight: 600 }}
+                              content={(props: any) => {
+                                const { x, y, width, value, index } = props;
+                                const row = paymentTimeline.rows[index];
+                                if (!value) return null;
+                                const flagged = row?._flagged;
+                                return (
+                                  <g>
+                                    <text
+                                      x={x + width / 2}
+                                      y={y - 6}
+                                      textAnchor="middle"
+                                      style={{ fontSize: 10, fill: "hsl(var(--foreground))", fontWeight: 600 }}
+                                    >
+                                      {fmtNum(Number(value))}
+                                    </text>
+                                    {flagged && (
+                                      <circle cx={x + width / 2} cy={y - 18} r={4} fill="hsl(15, 85%, 55%)" stroke="white" strokeWidth={1.5} />
+                                    )}
+                                  </g>
+                                );
+                              }}
                             />
                           )}
                         </Bar>
