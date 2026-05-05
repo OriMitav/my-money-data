@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { useMarketData } from "@/lib/marketData";
 
 // =================== Types ===================
 interface MortgageTrack {
@@ -264,6 +265,7 @@ const spitzerPMT = (balance: number, annualRatePct: number, months: number) => {
 export default function PropertyMortgageTab({ propertyId }: { propertyId: string }) {
   const { user } = useAuth();
   const qc = useQueryClient();
+  const { data: market } = useMarketData();
   const [openDialog, setOpenDialog] = useState(false);
   const [jsonText, setJsonText] = useState("");
   const [expandedCats, setExpandedCats] = useState<Record<string, boolean>>({});
@@ -532,7 +534,8 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
     return [...hist, ...forecast];
   }, [payload, snapshots, tracksEnriched]);
 
-  // Stacked monthly payment over years — grouped by category (פריים, קבועה, משתנה, צמוד מדד)
+  // Stacked monthly payment over years — grouped by category, with predictive
+  // adjustment for variable tracks based on the live bond yield index.
   const paymentTimeline = useMemo(() => {
     if (!payload) return { rows: [] as any[], keys: [] as string[] };
     const today = parseDate(payload.report_date) || new Date();
@@ -543,39 +546,73 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
       variable: "ריבית משתנה",
       cpi: "צמוד מדד",
     };
-    // Determine which categories are actually present (preserve a stable order)
     const presentSet = new Set<string>();
     tracksEnriched.forEach(t => presentSet.add(t._category));
     const order = ["prime", "fixed", "variable", "cpi"].filter(c => presentSet.has(c));
     const keys = order.map(c => CAT_LABEL[c]);
 
+    // For each variable track, compute the next adjustment year (5y anniversary
+    // of first_payment_date that is in the future). After that year, use the
+    // current bond yield as the projected rate to recompute the PMT.
+    const variableProjection = new Map<number, { year: number; oldPmt: number; newPmt: number }>();
+    const projectedPmtByTrack = new Map<number, { changeYear: number | null; basePmt: number; newPmt: number }>();
+    tracksEnriched.forEach((t, idx) => {
+      if (t._category !== "variable") return;
+      const start = parseDate(t.first_payment_date);
+      if (!start) return;
+      const candidate = new Date(start);
+      while (candidate <= today) candidate.setFullYear(candidate.getFullYear() + 5);
+      const changeYear = candidate.getFullYear();
+      const end = parseDate(t.end_date);
+      const monthsFromChange = end ? monthsBetween(candidate, end) : 0;
+      const projectedRate = market?.bondYield ?? t._rate ?? 0;
+      const newPmt = monthsFromChange > 0 && t._balance > 0
+        ? spitzerPMT(t._balance, projectedRate, monthsFromChange)
+        : t._pmt;
+      projectedPmtByTrack.set(idx, { changeYear, basePmt: t._pmt, newPmt });
+      variableProjection.set(idx, { year: changeYear, oldPmt: t._pmt, newPmt });
+    });
+
     const rows: Record<number, any> = {};
     const startY = today.getFullYear();
     for (let y = startY; y <= horizon; y++) {
-      rows[y] = { year: y, total: 0 };
+      rows[y] = { year: y, total: 0, _changes: [] as string[] };
       keys.forEach(k => { rows[y][k] = 0; });
     }
-    tracksEnriched.forEach(t => {
+    tracksEnriched.forEach((t, idx) => {
       const end = parseDate(t.end_date);
       const endY = end ? end.getFullYear() : startY;
       const label = CAT_LABEL[t._category] || "אחר";
+      const proj = projectedPmtByTrack.get(idx);
       for (let y = startY; y <= Math.min(endY, horizon); y++) {
-        rows[y][label] = (rows[y][label] || 0) + (t._pmt || 0);
-        rows[y].total += (t._pmt || 0);
+        const pmt = proj && y >= proj.changeYear! ? proj.newPmt : t._pmt;
+        rows[y][label] = (rows[y][label] || 0) + (pmt || 0);
+        rows[y].total += (pmt || 0);
+      }
+      // Mark end-of-track as a change
+      if (end && endY <= horizon && endY + 1 <= horizon && rows[endY + 1]) {
+        rows[endY + 1]._changes.push(`סיום מסלול ${t.track_name || t._category} (${endY})`);
+      }
+      if (proj && rows[proj.changeYear!]) {
+        rows[proj.changeYear!]._changes.push(`התאמת ריבית משתנה (${t.track_name || ""}) לפי תשואת אג"ח ${(market?.bondYield ?? 0).toFixed(2)}%`);
       }
     });
-    // Round for display
     const out = Object.values(rows)
       .sort((a: any, b: any) => a.year - b.year)
       .map((r: any) => {
-        const o: any = { year: r.year, total: Math.round(r.total) };
+        const o: any = { year: r.year, total: Math.round(r.total), _changes: r._changes };
         keys.forEach(k => { o[k] = Math.round(r[k] || 0); });
         return o;
       })
-      // Trim trailing zero years to keep chart focused
       .filter((r: any, _i, arr) => r.total > 0 || arr[0].year === r.year);
+    // Flag delta vs previous row
+    out.forEach((r, i) => {
+      const prev = i > 0 ? out[i - 1] : null;
+      r._delta = prev ? r.total - prev.total : 0;
+      r._flagged = !!prev && r.total !== prev.total;
+    });
     return { rows: out, keys };
-  }, [payload, tracksEnriched]);
+  }, [payload, tracksEnriched, market]);
 
   // ============ Track Mix donut data ============
   const COLORS = {
@@ -846,20 +883,12 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                         : `משוער: ${fmtILS(totalPMT)}`
                     }
                   />
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-                        <Activity className="h-4 w-4" /><span>מקורי מול נוכחי</span>
-                      </div>
-                      <div className="text-lg sm:text-xl font-bold tracking-tight truncate">
-                        {fmtILS(originalTotals.current)}
-                      </div>
-                      <div className="text-[11px] text-muted-foreground mt-1 truncate">
-                        מקורי: {fmtILS(originalTotals.original)} • שולם: {fmtILS(originalTotals.paidOff)} ({originalTotals.pctPaid.toFixed(1)}%)
-                      </div>
-                      <Progress value={originalTotals.pctPaid} className="h-1.5 mt-2" />
-                    </CardContent>
-                  </Card>
+                  <KpiCard
+                    icon={<TrendingUp className="h-4 w-4" />}
+                    label="החזר חודשי משוער (לפי מסלולים)"
+                    value={fmtILS(totalPMT)}
+                    sub={`${tracksEnriched.length} מסלולים פעילים`}
+                  />
                   <KpiCard
                     icon={<Flame className="h-4 w-4" />}
                     label='סה"כ עמלות והצמדה'
@@ -868,31 +897,25 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                   />
                 </div>
 
-                {/* Secondary KPI row — exposure/exit metrics preserved from prior version */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-3">
-                  <KpiCard
-                    icon={<TrendingUp className="h-4 w-4" />}
-                    label="החזר חודשי משוער (לפי מסלולים)"
-                    value={fmtILS(totalPMT)}
-                    sub={`${tracksEnriched.length} מסלולים פעילים`}
+                {/* Live macro-economic data cards (fetched daily) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mt-3">
+                  <MacroCard
+                    label="ריבית בנק ישראל"
+                    value={market ? `${market.boiRate.toFixed(2)}%` : "…"}
+                    sub={market ? `ריבית פריים: ${market.primeRate.toFixed(2)}%` : ""}
+                    fetchedAt={market?.fetchedAt}
                   />
-                  <KpiCard
-                    icon={<Calendar className="h-4 w-4" />}
-                    label="נקודת יציאה קרובה"
-                    value={nextExit ? nextExit.toLocaleDateString("he-IL") : "—"}
-                    sub={nextExit ? "תחנת יציאה משתנה" : "אין מסלולים משתנים"}
+                  <MacroCard
+                    label="מדד המחירים לצרכן"
+                    value={market ? `${market.cpi.toFixed(2)}%` : "…"}
+                    sub="שינוי שנתי"
+                    fetchedAt={market?.fetchedAt}
                   />
-                  <KpiCard
-                    icon={<Activity className="h-4 w-4" />}
-                    label="חשיפה לפריים / מדד"
-                    value={`${(exposure.pcts.prime || 0).toFixed(0)}% / ${(exposure.pcts.cpi || 0).toFixed(0)}%`}
-                    sub={`קבועה: ${(exposure.pcts.fixed || 0).toFixed(0)}% • משתנה: ${(exposure.pcts.variable || 0).toFixed(0)}%`}
-                  />
-                  <KpiCard
-                    icon={<Wallet className="h-4 w-4" />}
-                    label="מס' הלוואות פעילות"
-                    value={String((payload.loans || []).length)}
-                    sub={`סה"כ ${tracksEnriched.length} מסלולים`}
+                  <MacroCard
+                    label='מדד תשואות האג"ח'
+                    value={market ? `${market.bondYield.toFixed(2)}%` : "…"}
+                    sub="תשואה ממוצעת"
+                    fetchedAt={market?.fetchedAt}
                   />
                 </div>
 
@@ -1036,10 +1059,37 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                     <XAxis dataKey="year" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}K`} />
                     <RTooltip
-                      formatter={(v: number, name: string) => [fmtILS(Number(v)), name]}
-                      labelFormatter={(label, payload: any[]) => {
-                        const total = payload?.[0]?.payload?.total;
-                        return `${label} • סה"כ ${fmtILS(Number(total) || 0)}`;
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        const row: any = payload[0].payload;
+                        const changes: string[] = row?._changes || [];
+                        const delta = row?._delta || 0;
+                        return (
+                          <div dir="rtl" className="rounded-md border bg-background shadow-md p-3 text-xs space-y-1.5 min-w-[220px]">
+                            <div className="font-semibold border-b pb-1">{label} • סה"כ {fmtILS(Number(row?.total) || 0)}</div>
+                            {payload.map((p: any, i) => p.value > 0 && (
+                              <div key={i} className="flex items-center justify-between gap-3">
+                                <span className="flex items-center gap-1.5">
+                                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.fill }} />
+                                  {p.name}
+                                </span>
+                                <span className="font-mono">{fmtILS(Number(p.value))}</span>
+                              </div>
+                            ))}
+                            {row?._flagged && (
+                              <div className="border-t pt-1.5 mt-1.5 space-y-0.5">
+                                <div className={`font-semibold ${delta > 0 ? "text-red-600" : "text-green-600"}`}>
+                                  שינוי: {delta > 0 ? "+" : ""}{fmtILS(delta)}
+                                </div>
+                                {changes.length > 0 ? changes.map((c, i) => (
+                                  <div key={i} className="text-muted-foreground">• {c}</div>
+                                )) : (
+                                  <div className="text-muted-foreground">סיום של מסלול אחד או יותר</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -1057,8 +1107,27 @@ export default function PropertyMortgageTab({ propertyId }: { propertyId: string
                             <LabelList
                               dataKey="total"
                               position="top"
-                              formatter={(v: number) => (v ? fmtNum(Number(v)) : "")}
-                              style={{ fontSize: 10, fill: "hsl(var(--foreground))", fontWeight: 600 }}
+                              content={(props: any) => {
+                                const { x, y, width, value, index } = props;
+                                const row = paymentTimeline.rows[index];
+                                if (!value) return null;
+                                const flagged = row?._flagged;
+                                return (
+                                  <g>
+                                    <text
+                                      x={x + width / 2}
+                                      y={y - 6}
+                                      textAnchor="middle"
+                                      style={{ fontSize: 10, fill: "hsl(var(--foreground))", fontWeight: 600 }}
+                                    >
+                                      {fmtNum(Number(value))}
+                                    </text>
+                                    {flagged && (
+                                      <circle cx={x + width / 2} cy={y - 18} r={4} fill="hsl(15, 85%, 55%)" stroke="white" strokeWidth={1.5} />
+                                    )}
+                                  </g>
+                                );
+                              }}
                             />
                           )}
                         </Bar>
@@ -1392,6 +1461,31 @@ function KpiCard({ icon, label, value, sub }: { icon: React.ReactNode; label: st
         </div>
         <div className="text-lg sm:text-xl font-bold tracking-tight truncate">{value}</div>
         {sub && <div className="text-[11px] text-muted-foreground mt-1 truncate">{sub}</div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MacroCard({ label, value, sub, fetchedAt }: { label: string; value: string; sub?: string; fetchedAt?: string }) {
+  return (
+    <Card className="bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/60 dark:border-blue-900/40">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between gap-2 text-blue-900/80 dark:text-blue-200/80 text-xs mb-2">
+          <div className="flex items-center gap-2">
+            <span className="relative inline-flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75 animate-ping" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500" />
+            </span>
+            <span>{label}</span>
+          </div>
+          {fetchedAt && (
+            <span className="text-[10px] text-muted-foreground">
+              {new Date(fetchedAt).toLocaleDateString("he-IL")}
+            </span>
+          )}
+        </div>
+        <div className="text-xl sm:text-2xl font-bold tracking-tight">{value}</div>
+        {sub && <div className="text-[11px] text-muted-foreground mt-1">{sub}</div>}
       </CardContent>
     </Card>
   );

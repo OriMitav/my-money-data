@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { CalendarIcon, Plus, Trash2, Loader2, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { CalendarIcon, Plus, Trash2, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -132,39 +132,6 @@ export default function PropertyCashflowTab({ propertyId }: { propertyId: string
 
   return (
     <div dir="rtl" className="space-y-4">
-      {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-              <TrendingDown className="h-4 w-4 text-red-500" />
-              <span>סך הוצאות</span>
-            </div>
-            <div className="text-xl font-bold text-red-600">{fmtILS(totals.expense)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-              <TrendingUp className="h-4 w-4 text-green-500" />
-              <span>סך הכנסות</span>
-            </div>
-            <div className="text-xl font-bold text-green-600">{fmtILS(totals.income)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-2">
-              <Wallet className="h-4 w-4" />
-              <span>מאזן מצטבר</span>
-            </div>
-            <div className={cn("text-xl font-bold", totals.balance >= 0 ? "text-green-600" : "text-red-600")}>
-              {fmtILS(totals.balance)}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Form */}
       <Card>
         <CardHeader className="pb-2">
