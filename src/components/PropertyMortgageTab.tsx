@@ -263,6 +263,53 @@ const spitzerPMT = (balance: number, annualRatePct: number, months: number) => {
   return (balance * r) / (1 - Math.pow(1 + r, -months));
 };
 
+// Extract fixed margin (e.g. 2.80) from rate strings like "עוגן + % 2.80",
+// "עוגן + 2.80%", "Prime + 0.5%", or "פריים - 0.5%".
+const extractMargin = (s?: string | null): number | null => {
+  if (!s) return null;
+  const m = /([+\-])\s*%?\s*(\d+(?:\.\d+)?)\s*%?/.exec(String(s));
+  if (!m) return null;
+  const sign = m[1] === "-" ? -1 : 1;
+  return sign * parseFloat(m[2]);
+};
+
+// Walk a single track month-by-month. Optionally apply a rate change at a
+// "station" (variable adjustment) date and return per-month interest/principal.
+interface TrackStep {
+  month: number;          // months since today
+  interest: number;
+  principal: number;
+  payment: number;
+  balance: number;
+}
+const amortizeTrack = (
+  startBalance: number,
+  initialRate: number | null,
+  totalMonths: number,
+  initialPmt: number,
+  station?: { month: number; newRate: number } | null,
+): TrackStep[] => {
+  const out: TrackStep[] = [];
+  let balance = startBalance;
+  let rate = initialRate ?? 0;
+  let pmt = initialPmt;
+  for (let m = 1; m <= totalMonths; m++) {
+    if (station && m === station.month) {
+      rate = station.newRate;
+      const remaining = totalMonths - m + 1;
+      pmt = spitzerPMT(balance, rate, remaining);
+    }
+    if (balance <= 0 || pmt <= 0) break;
+    const r = (rate / 100) / 12;
+    const interest = r > 0 ? balance * r : 0;
+    const principal = Math.max(0, Math.min(balance, pmt - interest));
+    balance = Math.max(0, balance - principal);
+    out.push({ month: m, interest, principal, payment: interest + principal, balance });
+    if (balance <= 0) break;
+  }
+  return out;
+};
+
 // =================== Component ===================
 export default function PropertyMortgageTab({ propertyId }: { propertyId: string }) {
   const { user } = useAuth();
