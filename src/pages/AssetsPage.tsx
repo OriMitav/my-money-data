@@ -106,6 +106,30 @@ export default function AssetsPage() {
     enabled: !!user,
   });
 
+  // Cashflow totals — must be declared before any early return to keep hook order stable
+  const { data: cashflowRowsAll = [] } = useQuery({
+    queryKey: ["property_cashflow_all_for_totals"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("property_cashflow")
+        .select("property_id, amount");
+      if (error) throw error;
+      return data as { property_id: string; amount: number }[];
+    },
+    enabled: !!user,
+  });
+  const cashflowTotalsByProperty = useMemo(() => {
+    const map = new Map<string, { income: number; expense: number; balance: number }>();
+    cashflowRowsAll.forEach(r => {
+      const cur = map.get(r.property_id) || { income: 0, expense: 0, balance: 0 };
+      const a = Number(r.amount) || 0;
+      if (a >= 0) cur.income += a; else cur.expense += Math.abs(a);
+      cur.balance += a;
+      map.set(r.property_id, cur);
+    });
+    return map;
+  }, [cashflowRowsAll]);
+
   const createMutation = useMutation({
     mutationFn: async (f: typeof form) => {
       const { error } = await supabase.from("properties").insert({ ...f, user_id: user!.id });
@@ -335,27 +359,7 @@ export default function AssetsPage() {
     setSelectedProperty({ ...prop, monthly_rent_income: value });
   };
 
-  // Cashflow totals (lifted from PropertyCashflowTab so they stay visible across tabs)
-  const { data: cashflowRows = [] } = useQuery({
-    queryKey: ["property_cashflow", prop.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("property_cashflow")
-        .select("amount")
-        .eq("property_id", prop.id);
-      if (error) throw error;
-      return data as { amount: number }[];
-    },
-    enabled: !!user,
-  });
-  const cashflowTotals = useMemo(() => {
-    let income = 0, expense = 0;
-    cashflowRows.forEach(r => {
-      const a = Number(r.amount) || 0;
-      if (a >= 0) income += a; else expense += a;
-    });
-    return { income, expense: Math.abs(expense), balance: income + expense };
-  }, [cashflowRows]);
+  const cashflowTotals = cashflowTotalsByProperty.get(prop.id) || { income: 0, expense: 0, balance: 0 };
 
   // Property profitability: Market Value - Capital Gains Tax (25% on gain) + Cumulative Cashflow Balance
   const capitalGain = marketValue !== null ? Math.max(0, marketValue - prop.purchase_price) : 0;
